@@ -4,7 +4,7 @@
 
 Install the GitHub integration in Codex, then authorize it while signed in as **Jasonafex**. Verify the displayed GitHub account before approving. Prefer access only to the release repository if the authorization screen offers that choice. If the integration cannot create a repository with that scope, create an empty public `urban-reign-redux` repository in the GitHub website, then grant the integration access to it. Do not paste passwords or access tokens into chat.
 
-The files in this repository are ready for publication. They contain the website, README and an optional upload workflow—not game images, private models, local logs or the entire development project. No release archive has been created.
+The repository and v0.1.0 pre-release are published. The repository contains the website, README and optional upload workflow—not game images, private models, local logs or the entire development project. Release binaries remain attached to GitHub Releases rather than repository history.
 
 Pages is published from `main` → `/docs` at <https://jasonafex.github.io/urban-reign-redux/>. Future commits to the `docs` folder redeploy the site automatically. [GitHub publishing instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
@@ -12,11 +12,9 @@ If CLI authorization is used instead of the integration, sign in locally with Gi
 
 ## Screenshots and download links
 
-Five image slots are reserved: hero gameplay, roster, gameplay, loader and editor. Place the images in `docs/screens/`, then replace the corresponding `null` values in `docs/screens.js` with paths such as `screens/roster.webp`. Use real game captures for gameplay slots. The page remains functional with placeholders and does not request nonexistent files.
+The supplied release screenshots are published from `docs/assets`, and `docs/screens.js` maps the gallery slots. The release board links to [v0.1.0](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.1.0).
 
-After publishing a GitHub release, replace the release-board preparation text and add its actual download links. Keep pre-release status until the selected package has completed gameplay testing. The intro video is not ready yet.
-
-Upload your own final ZIP to GitHub Releases; keep installers and mods out of the repository history. Use the same ZIP on other hosts so the checksums match. The player ZIP should contain the launcher installer and a sibling `mods` folder made from **launcher/mods**, not the editor's mod folders. Publish the editor separately if desired. Keep asset credits and permissions with the final package.
+Keep installers and mods out of repository history. Reuse the published player ZIP on other hosts so checksums match. It contains the launcher installer and sibling `mods` folder made from **launcher/mods**. The editor installer is published separately. Keep asset credits and permissions with future packages.
 
 ## Nexus Mods
 
