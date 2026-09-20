@@ -6,7 +6,7 @@ Install the GitHub integration in Codex, then authorize it while signed in as **
 
 The files in this repository are ready for publication. They contain the website, README and an optional upload workflow—not game images, private models, local logs or the entire development project. No release archive has been created.
 
-Enable Pages in Settings → Pages → Deploy from a branch → `main` → `/docs`. The expected address is `https://jasonafex.github.io/urban-reign-redux/`; this address is not live until the repository is created and Pages finishes deploying. [GitHub publishing instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+Pages is published from `main` → `/docs` at <https://jasonafex.github.io/urban-reign-redux/>. Future commits to the `docs` folder redeploy the site automatically. [GitHub publishing instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
 If CLI authorization is used instead of the integration, sign in locally with GitHub CLI (`gh auth login`) and verify `gh api user --jq .login` returns Jasonafex. For an account-approved fine-grained credential, the relevant repository permissions are Contents write, Pages write and the permissions GitHub requires for creating/configuring the repository; uploading the workflow also requires Workflows write. Store credentials using GitHub's login tools, not this folder. [GitHub permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
 
