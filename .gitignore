@@ -1,0 +1,11 @@
+*.iso
+*.iso.*
+*.original
+*.exe
+*.zip
+*.blend*
+*.urmod
+.env*
+upload-kit/
+node_modules/
+__pycache__/
