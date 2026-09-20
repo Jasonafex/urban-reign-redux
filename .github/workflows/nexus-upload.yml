@@ -1,0 +1,67 @@
+name: Upload an existing release to Nexus Mods
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published GitHub release tag
+        required: true
+      asset:
+        description: Exact ZIP asset filename (already uploaded by you)
+        required: true
+      sha256:
+        description: SHA256 of the ZIP
+        required: true
+      version:
+        description: Nexus file version
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: nexus-upload
+  cancel-in-progress: false
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    environment: nexus-release
+    steps:
+      - name: Check configuration and inputs
+        env:
+          NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          FILE_ID: ${{ vars.NEXUSMODS_FILE_ID }}
+          TAG: ${{ inputs.tag }}
+          ASSET: ${{ inputs.asset }}
+          SHA: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "$NEXUS_KEY" || { echo 'Configure NEXUSMODS_API_KEY in the nexus-release environment.'; exit 1; }
+          test -n "$FILE_ID" || { echo 'Configure NEXUSMODS_FILE_ID after the first manual Nexus upload.'; exit 1; }
+          [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+          [[ "$ASSET" =~ ^[A-Za-z0-9][A-Za-z0-9._\ -]*\.zip$ ]]
+          [[ "$SHA" =~ ^[A-Fa-f0-9]{64}$ ]]
+      - name: Download the selected GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          ASSET: ${{ inputs.asset }}
+          SHA: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = false
+          mkdir payload
+          gh release download "$TAG" --pattern "$ASSET" --dir payload
+          printf '%s  %s\n' "$SHA" "payload/$ASSET" | sha256sum --check
+      - name: Upload a new version of the existing Nexus file
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUSMODS_FILE_ID }}
+          filename: payload/${{ inputs.asset }}
+          version: ${{ inputs.version }}
+          display_name: Urban Reign Redux
+          description: See the matching GitHub release for changes and installation notes.
+          category: main
+          archive_existing_version: false
+          allow_mod_manager_download: false
+          primary_mod_manager_download: false
+          update_mod_version: true
