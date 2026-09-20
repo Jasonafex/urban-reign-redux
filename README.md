@@ -6,6 +6,8 @@ A community mod project by **Jasonafex** for Urban Reign: character replacements
 
 **[Version 0.1 Alpha is available now.](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.1.0)** The player ZIP includes the mod-loader installer, 22 selectable packs, and the finished Redux opening movie. The optional editor is a separate download.
 
+![Urban Reign Redux characters and gameplay](docs/assets/youtube-thumbnail.png)
+
 ## Choose your setup
 
 | Package | Use it for |
