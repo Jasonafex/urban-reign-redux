@@ -1,0 +1,20 @@
+figcaption a{color:var(--gold);text-underline-offset:3px}
+.playbook{background:linear-gradient(180deg,#0a0d13,#11151d)}
+.tutorial-deck{display:grid;gap:34px;margin-top:38px}
+.tutorial-step{border:1px solid #4a4d57;background:#0d1118;box-shadow:0 16px 36px #0005}
+.tutorial-banner{position:relative;min-height:300px;overflow:hidden;display:flex;align-items:flex-end;isolation:isolate}
+.tutorial-banner img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
+.tutorial-banner:after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,#080b11f5 0%,#080b11c8 40%,#080b1118 74%),linear-gradient(0deg,#080b11c0,transparent 58%);z-index:-1}
+.tutorial-banner-copy{padding:38px;max-width:660px}
+.tutorial-banner-copy span{display:block;color:var(--gold);font-size:10px;font-weight:800;letter-spacing:2.5px;margin-bottom:16px}
+.tutorial-banner-copy h3{font-family:Impact,'Arial Narrow',Arial,sans-serif;font-size:clamp(32px,4vw,54px);font-weight:400;text-transform:uppercase;line-height:1;margin:0 0 12px}
+.tutorial-banner-copy p{font-size:14px;color:#ddd;margin:0}
+.tutorial-points{display:grid;grid-template-columns:1fr 1fr}
+.tutorial-points>div{padding:25px 30px;border-top:1px solid var(--line)}
+.tutorial-points>div:nth-child(odd){border-right:1px solid var(--line)}
+.tutorial-points b{display:block;font-size:14px;margin-bottom:8px;color:var(--text)}
+.tutorial-points p{font-size:12px;color:var(--muted);margin:0}
+.tutorial-step:nth-child(even) .tutorial-banner:after{background:linear-gradient(270deg,#080b11f5 0%,#080b11c8 40%,#080b1118 74%),linear-gradient(0deg,#080b11c0,transparent 58%)}
+.tutorial-step:nth-child(even) .tutorial-banner{justify-content:flex-end;text-align:right}
+@media(max-width:800px){.tutorial-banner{min-height:260px}.tutorial-banner-copy{padding:28px}.tutorial-points{grid-template-columns:1fr}.tutorial-points>div:nth-child(odd){border-right:0}.tutorial-step:nth-child(even) .tutorial-banner{justify-content:flex-start;text-align:left}.tutorial-step:nth-child(even) .tutorial-banner:after{background:linear-gradient(90deg,#080b11f5 0%,#080b11c8 40%,#080b1118 74%),linear-gradient(0deg,#080b11c0,transparent 58%)}}
+@media(max-width:480px){.tutorial-banner{min-height:230px}.tutorial-banner-copy h3{font-size:30px}.tutorial-points>div{padding:22px}.tutorial-banner-copy{padding:24px}}
