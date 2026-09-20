@@ -1,3 +1,2 @@
-// Replace each null with a relative image path when screenshots are supplied.
-const screenshots={hero:null,roster:null,gameplay:null,loader:null,editor:null};
+const screenshots={hero:'assets/hero.png',roster:'assets/roster.png',gameplay:'assets/gameplay.png',loader:'assets/mod-loader.png',editor:'assets/editor.png',tutorial:'assets/tutorial.png',impact:'assets/impact.png',thanks:'assets/thanks.png'};
 for(const [slot,path] of Object.entries(screenshots)){if(!path)continue;const frame=slot==='hero'?document.querySelector('.hero-art .shot'):document.querySelector(`[data-slot="${slot}"]`);const placeholder=frame.querySelector('.placeholder');const image=new Image();image.alt=placeholder.querySelector('strong').textContent;image.loading=slot==='hero'?'eager':'lazy';image.onload=()=>placeholder.replaceWith(image);image.src=path;}
