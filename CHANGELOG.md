@@ -1,12 +1,15 @@
 # Urban Reign Redux 0.2 Alpha
 
-## Installation update — September 26, 2026
-- One **Auto-Installer.exe** replaces the separate player, editor, launcher and runtime downloads.
-- Mod Manager, Editor (Optional) and Mods are checked by default. All release content is bundled.
-- Automatic PCSX2 program/data-folder setup, including Documents/OneDrive, memory/runtime patches and HD textures.
-- Optional desktop and Windows-startup shortcuts, plus an offline picture guide and a Picture guide button in Mod Manager.
-- Direct DOWNLOAD buttons on GitHub and the project website.
-- This packaging update does not change the game models or resolve the known issues below.
+## Lean installer update — September 26, 2026
+- Auto-Installer is about **30 MB**, down from 1.02 GB. Mod Manager is bundled; selected content downloads automatically.
+- Required default textures/intro stay checked. Character mods and music are on by default. **Advanced** offers individual character selection; **Editor** is last and off by default.
+- Separate character packages include their HD textures. Skipped characters use their original fighters, and duplicate original entries are removed from character select.
+- Downloads are verified and cached. Interrupted downloads resume; damaged cached files are downloaded again.
+- Installer styling now matches Mod Manager, with readable visual strips on every page.
+- PCSX2 Documents/OneDrive detection, memory/runtime setup, desktop shortcuts and optional Windows-startup shortcuts remain automatic.
+- The shared patch reuses unchanged data from the player's ISO instead of redistributing it. Selecting all characters/music recreates the existing v0.2 game image byte for byte.
+- Full, single-character and core-only installs were checked. The Editor and Mod Manager build paths were checked; no emulator was launched in this packaging pass.
+- This update does not repair the remaining model issues below.
 
 ## Added
 - Expanded fighter selection: the release collection adds its custom fighters alongside the original roster instead of replacing their slots.
@@ -20,7 +23,7 @@
 ## Included model updates
 - Cammy's earlier chest repair and Bryan's hair repair are retained.
 - Marduk's lowered crotch correction is retained.
-- The collection includes the current 167 replacement texture files.
+- HD textures are delivered with their selected characters; unused older texture aliases are omitted.
 
 ## Known issues
 - Violet still deforms around his gloves/hands and open shirt in some poses. Collar gaps and tooth visibility still need work.
@@ -31,7 +34,7 @@
 - This is an Alpha release. Additional stage, camera and multiplayer compatibility testing is welcome.
 
 ## Installation
-Download **[Auto-Installer.exe](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)**, run it, and follow the **[picture guide](https://jasonafex.github.io/urban-reign-redux/install/)**. All three components are selected by default; the Editor is optional.
+Download **[Auto-Installer.exe](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)**, run it, and follow the **[picture guide](https://jasonafex.github.io/urban-reign-redux/install/)**. Character mods and music are selected by default; Editor is unchecked. Use Advanced to select individual characters. Default textures and intro cannot be unchecked. Setup needs internet.
 
 Choose your PCSX2 program folder during setup. Setup finds Documents/OneDrive or portable data and respects custom cheat/texture folders. Close PCSX2 before setup writes its files. Desktop shortcuts are offered and opening Mod Manager at Windows login is opt-in.
 
@@ -39,6 +42,6 @@ Open Mod Manager, choose your supported original ISO, keep **Clone** and **Redux
 
 Editor users can choose **Settings → Build Redux 0.2 collection**. Normal authoring builds remain separate from the complete release collection.
 
-Runtime setup is bundled and runs automatically; no separate runtime download is needed. It is scoped to v0.2 (SLUS-21209 / AAC5DB56). ISO-based setup checks the complete executable hash before installing address-specific patches.
+Runtime setup is bundled and runs automatically; no separate runtime download is needed. It is scoped to v0.2 (SLUS-21209 / AAC5DB56). ISO-based setup checks the executable against the release, allowing only the verified character-selection data changes before installing address-specific patches.
 
 A game ISO and PCSX2 are not included. The builder accepts the previously supported USA and Deluxe hashes. The verified Deluxe rebuild matched the installed test image byte for byte; a fresh clean-USA rebuild was not performed in this release pass.

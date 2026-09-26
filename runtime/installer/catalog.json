@@ -1,0 +1,264 @@
+[
+  {
+    "id": "core",
+    "name": "Default textures + intro",
+    "bytes": 99526240,
+    "sha256": "69e2077b4d12808c94816f785dc2f375ed56f0d51f1247a72dfb807881646151",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Core.zip",
+    "required": true,
+    "requires": []
+  },
+  {
+    "id": "character-ArmorQueen",
+    "name": "Armor Queen",
+    "bytes": 9019175,
+    "sha256": "0d98e7fc33557b9c1fda3b97382647e5aad54e855c90237bee50e07b74f2219b",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/ArmorQueen.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Asuka",
+    "name": "Asuka",
+    "bytes": 5867162,
+    "sha256": "c9ea206ad6fee9e54767c88694ac29d9a286767b8c48dd89da6671cefc44ca0f",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Asuka.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Bruce",
+    "name": "Bruce",
+    "bytes": 6188757,
+    "sha256": "b82d5072c3cc3d07c87c095800fc7d4a4435847564bf1a037d03a3f6d49ec74e",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Bruce.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Bryan",
+    "name": "Bryan",
+    "bytes": 7891934,
+    "sha256": "77dd54999ba9992516a02ab46d254ec23a98dd0fb498ea0f86b3633d44e2505a",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Bryan.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Cammy",
+    "name": "Cammy",
+    "bytes": 8705033,
+    "sha256": "6637f320e9ef7686f3572e6468f9a46f5c7bb1bc995a98d129734a5c20ddaa4f",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Cammy.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Christie",
+    "name": "Christie",
+    "bytes": 9027842,
+    "sha256": "f6fd7dab13f4ab93e8709338d12c30cfbf2f878578b0809231087e1eccb7a253",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Christie.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Dragunov",
+    "name": "Dragunov",
+    "bytes": 9253897,
+    "sha256": "92823f0140a721f821246088e74fd5cf48a5abef65be50317e232be07ea15324",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Dragunov.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Eddy",
+    "name": "Eddy",
+    "bytes": 14497935,
+    "sha256": "0de0522aaaceb12c758a65797c05d76b2ed9685574e023a8236cd70202af4ea5",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Eddy.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Feng",
+    "name": "Feng",
+    "bytes": 7562439,
+    "sha256": "a21f50db6ecc32bac273d45fa072164965e61058407a907dbfd475a9504b469a",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Feng.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Heihachi",
+    "name": "Heihachi",
+    "bytes": 5744981,
+    "sha256": "2df41dd75fb277f15ce600bd52d2c9e2fc891d5af95165fd24e57b2fada0ea0e",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Heihachi.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Hwoarang",
+    "name": "Hwoarang",
+    "bytes": 11036947,
+    "sha256": "eed35ed8157677fde27a4adbeeeff41f24ab32f7ae0bae101b482c4c96fae8ba",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Hwoarang.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Jack5",
+    "name": "Jack 5",
+    "bytes": 7804507,
+    "sha256": "feea0ae3443b6aea497eb940e18e376797931d07c4bc90ea5237aa014bae71c8",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Jack5.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Jin",
+    "name": "Jin",
+    "bytes": 6756542,
+    "sha256": "1fad7767d8dc1516587f80e14ac951b2a8b2b5c3172df05b6caf7bae93979af5",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Jin.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Kazuya",
+    "name": "Kazuya",
+    "bytes": 7777385,
+    "sha256": "a2ed30d0b5119cf614d6361f289db5081d9742de8b61c514dbd0306280317c7b",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Kazuya.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-King",
+    "name": "King",
+    "bytes": 9958329,
+    "sha256": "10142b06d6567ce473205782b267bc41927e187e643a55e648b1af13dc306104",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/King.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Kiryu",
+    "name": "Kiryu",
+    "bytes": 9422406,
+    "sha256": "de417b9dae7556f43cef597d26a49fe658800a61415f79b67de208f7377783cb",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Kiryu.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Leon",
+    "name": "Leon",
+    "bytes": 10670467,
+    "sha256": "119bfdf6186e09423c86f9ea3310edea3c97c921c11d71bd22b660f199226987",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Leon.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Marduk",
+    "name": "Marduk",
+    "bytes": 8470828,
+    "sha256": "fb9d2052eaaeb24a2a0f58cc758b1d14b6881cc5122a9f4fcd8a584fe8a48721",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Marduk.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "music",
+    "name": "Music",
+    "bytes": 6289499,
+    "sha256": "14d832fdde301b3eba19cfeb8005343fdd02b675537951d9238df88806199424",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Music.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-PaulT4",
+    "name": "Paul T4",
+    "bytes": 3188998,
+    "sha256": "d5b5e96b885d59a154c0a1fdf8cf487a224f3b03afdf0d567436b796527f90c2",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/PaulT4.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Steve",
+    "name": "Steve",
+    "bytes": 12443538,
+    "sha256": "4735a8738cc344dcae561144ea177d1b75f2e9879d9c7e2678a7ae7cd45947e1",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Steve.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "character-Violet",
+    "name": "Violet",
+    "bytes": 8518510,
+    "sha256": "668e469a3b0d392798c8d0bad397fbd210cb3999079099c481d8589a204a675b",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Violet.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  },
+  {
+    "id": "editor",
+    "name": "Editor (Optional)",
+    "bytes": 157645579,
+    "sha256": "ea9a42e8b3d99437f3aba3eef956210e5063b9afc5b31015547b25b3358434af",
+    "url": "https://github.com/Jasonafex/urban-reign-redux/releases/download/v0.2.0-components.1/Editor-2.zip",
+    "required": false,
+    "requires": [
+      "core"
+    ]
+  }
+]
