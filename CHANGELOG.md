@@ -1,5 +1,16 @@
 # Urban Reign Redux 0.2 Alpha
 
+## Installer reliability update — 2026-09-26
+- Installer is approximately 43 MB; optional content still downloads only when selected.
+- USA CHD support: conversion is automatic, the input is preserved, and output is a separate ISO. The supplied single-track MODE1/2048 USA CHD passed conversion and a full build.
+- Verified executable recovery preserves approved character selections while retaining source checks and output verification. Unrecognized character data is refused.
+- Persistent installer/build logs with a Support logs button in Mod Manager and clickable installer error text. Log contents redact the Windows user-profile path.
+- Clear rejection for European and Japanese editions. Regional ports are deferred.
+- Fresh installation and Deluxe build passed. Original source images were not changed.
+- Bundled CHD converter: unmodified MAME 0.289 chdman; notices ship with it and corresponding source is available in the component release.
+
+
+
 ## Lean installer update — September 26, 2026
 - Auto-Installer is about **30 MB**, down from 1.02 GB. Mod Manager is bundled; selected content downloads automatically.
 - Required default textures/intro stay checked. Character mods and music are on by default. **Advanced** offers individual character selection; **Editor** is last and off by default.
