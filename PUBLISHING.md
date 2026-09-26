@@ -4,7 +4,7 @@
 
 Install the GitHub integration in Codex, then authorize it while signed in as **Jasonafex**. Verify the displayed GitHub account before approving. Prefer access only to the release repository if the authorization screen offers that choice. If the integration cannot create a repository with that scope, create an empty public `urban-reign-redux` repository in the GitHub website, then grant the integration access to it. Do not paste passwords or access tokens into chat.
 
-The repository and v0.1.0 pre-release are published. The repository contains the website, README and optional upload workflow—not game images, private models, local logs or the entire development project. Release binaries remain attached to GitHub Releases rather than repository history.
+The repository and v0.2.0 Alpha release are published. The repository contains the website, README and optional upload workflow—not game images, private models, local logs or the entire development project. Release binaries remain attached to GitHub Releases rather than repository history.
 
 Pages is published from `main` → `/docs` at <https://jasonafex.github.io/urban-reign-redux/>. Future commits to the `docs` folder redeploy the site automatically. [GitHub publishing instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
@@ -12,9 +12,9 @@ If CLI authorization is used instead of the integration, sign in locally with Gi
 
 ## Screenshots and download links
 
-The supplied release screenshots are published from `docs/assets`, and `docs/screens.js` maps the gallery slots. The release board links to [v0.1.0](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.1.0).
+The supplied release screenshots are published from `docs/assets`, and `docs/screens.js` maps the gallery slots. All player-facing buttons link directly to `/releases/latest/download/Auto-Installer.exe`. Keep that filename unchanged on future releases, and mark the intended release as latest. The software can remain labelled Alpha in its title and notes.
 
-Keep installers and mods out of repository history. Reuse the published player ZIP on other hosts so checksums match. It contains the launcher installer and sibling `mods` folder made from **launcher/mods**. The editor installer is published separately. Keep asset credits and permissions with future packages.
+Keep installers and mods out of repository history. Publish only **Auto-Installer.exe** as the current GitHub release asset. Verify its SHA256 before removing superseded assets. The single installer bundles Mod Manager, optional Editor, Mods and runtime setup. The offline picture guide is mirrored at `docs/install/`. Keep asset credits and permissions with future packages.
 
 ## Nexus Mods
 

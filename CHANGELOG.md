@@ -1,5 +1,13 @@
 # Urban Reign Redux 0.2 Alpha
 
+## Installation update — September 26, 2026
+- One **Auto-Installer.exe** replaces the separate player, editor, launcher and runtime downloads.
+- Mod Manager, Editor (Optional) and Mods are checked by default. All release content is bundled.
+- Automatic PCSX2 program/data-folder setup, including Documents/OneDrive, memory/runtime patches and HD textures.
+- Optional desktop and Windows-startup shortcuts, plus an offline picture guide and a Picture guide button in Mod Manager.
+- Direct DOWNLOAD buttons on GitHub and the project website.
+- This packaging update does not change the game models or resolve the known issues below.
+
 ## Added
 - Expanded fighter selection: the release collection adds its custom fighters alongside the original roster instead of replacing their slots.
 - Expanded, paged stage selection with story-mode locations available in multiplayer.
@@ -23,13 +31,14 @@
 - This is an Alpha release. Additional stage, camera and multiplayer compatibility testing is welcome.
 
 ## Installation
-1. Extract the player ZIP and keep the launcher installer beside its `mods` folder.
-2. Install the launcher, select your supported original ISO, and select your PCSX2 installation or data folder. Close PCSX2 while setup writes its files.
-3. Select **Redux 0.2 Collection** on its own. Do not combine it with the old character-replacement packs. Choose Clone or Overwrite, then build.
-4. The launcher verifies the image and installs the companion files automatically. Cold-boot the resulting ISO in PCSX2; do not resume an old save state. The local test setup uses PCSX2 2.7.403 with ExtraMemory support.
+Download **[Auto-Installer.exe](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)**, run it, and follow the **[picture guide](https://jasonafex.github.io/urban-reign-redux/install/)**. All three components are selected by default; the Editor is optional.
 
-The optional editor installer includes the same collection. In Settings, save your emulator executable, then choose **Build Redux 0.2 collection**. The normal authoring build still builds the selected replacement mods; it is separate from the fixed release collection.
+Choose your PCSX2 program folder during setup. Setup finds Documents/OneDrive or portable data and respects custom cheat/texture folders. Close PCSX2 before setup writes its files. Desktop shortcuts are offered and opening Mod Manager at Windows login is opt-in.
 
-Existing users can run `ReduxRuntimeSetup.exe` from the runtime ZIP and choose their PCSX2 folder. The utility is scoped to the v0.2 executable (SLUS-21209 / AAC5DB56). ISO-based setup verifies the complete executable hash before installing address-specific patches. Unknown expanded builds are rejected. No emulator is included or launched by setup.
+Open Mod Manager, choose your supported original ISO, keep **Clone** and **Redux 0.2 Collection** selected, and apply. Cold-boot the resulting `-modded.iso`; do not resume an old save state. PCSX2 2.7.403 with ExtraMemory support is the tested configuration.
 
-A game ISO is not included. Keep your own original, any `.iso.original` backup and the `.studio.json` record. The builder accepts the previously supported USA and Deluxe hashes; the fresh build verification for this release used the verified Deluxe source and matched the installed test image byte for byte. A fresh clean-USA rebuild has not been performed in this release pass.
+Editor users can choose **Settings → Build Redux 0.2 collection**. Normal authoring builds remain separate from the complete release collection.
+
+Runtime setup is bundled and runs automatically; no separate runtime download is needed. It is scoped to v0.2 (SLUS-21209 / AAC5DB56). ISO-based setup checks the complete executable hash before installing address-specific patches.
+
+A game ISO and PCSX2 are not included. The builder accepts the previously supported USA and Deluxe hashes. The verified Deluxe rebuild matched the installed test image byte for byte; a fresh clean-USA rebuild was not performed in this release pass.

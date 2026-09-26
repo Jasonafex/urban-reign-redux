@@ -1,53 +1,33 @@
 <p align="center"><img src="docs/assets/logo.png" alt="Urban Reign Redux" width="650"></p>
 
+[![DOWNLOAD AUTO-INSTALLER — Windows, one file, everything included](docs/assets/download-auto-installer.svg)](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)
+
+**[Click here to download Auto-Installer.exe](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)** · **[Picture guide](https://jasonafex.github.io/urban-reign-redux/install/)**
+
 # Urban Reign Redux
 
-A community mod project by **Jasonafex** for Urban Reign: an expanded fighter roster, additional multiplayer stages, music and menu artwork, a Windows mod launcher, and an optional editor.
+More fighters, more multiplayer stages, new music and menus for Urban Reign. A community project by **Jasonafex**.
 
-**[Version 0.2 Alpha is available now.](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.2.0)** Expanded fighter and stage selection, a mouth-animation pilot, and automatic PCSX2 companion setup. See the [changelog and known issues](CHANGELOG.md).
+## Install in three steps
 
-![Urban Reign Redux characters and gameplay](docs/assets/youtube-thumbnail.png)
+1. **Download and run Auto-Installer.exe.** Keep **Mod Manager**, **Editor (Optional)** and **Mods** checked. Uncheck Editor if you only want to play.
+2. **Choose your PCSX2 program folder.** Setup finds its Documents/OneDrive data folder and installs the required memory patch, runtime files and HD textures automatically. Keep PCSX2 closed during installation.
+3. **Open Redux Mod Manager.** Choose your supported original Urban Reign ISO, keep **Clone** and **Redux 0.2 Collection** selected, then click **Apply selected mods**. Open the new `-modded.iso` in PCSX2 from a fresh boot.
 
-## Choose your setup
+**No ZIP extraction, separate mod downloads or manual file copying.** Desktop shortcuts are offered; starting with Windows is optional. The picture guide is included in the installer and available from Mod Manager.
 
-| Package | Use it for |
-| --- | --- |
-| Mod launcher + launcher mod packs | Select and apply ready-to-use mods to your own supported ISO. |
-| Editor + editor-ready mods | Prepare and preview models, textures and audio; export launcher packs. |
+You need Windows 64-bit, PCSX2 with ExtraMemory support, and your own supported Urban Reign ISO. PCSX2 and the game are not included. The release was tested with PCSX2 2.7.403. Open PCSX2 once and close it before running setup.
 
-The launcher supports **Clone** (`Name-modded.iso` beside the original) and **Overwrite**, with a recoverable original backup. **Redux Music** and **Redux UI & Intro** are separate selectable packs.
+## See what is included
 
-## Screenshots
+[Explore the screenshots and full project rundown](https://jasonafex.github.io/urban-reign-redux/) · [Changes and known issues](CHANGELOG.md) · [Report an issue](https://github.com/Jasonafex/urban-reign-redux/issues)
 
-The [project website](https://jasonafex.github.io/urban-reign-redux/) includes the release gallery, mod-loader and editor captures, gameplay images, and installation guide.
-
-## Installation
-
-1. Extract the player release with the installer and `mods` folder beside each other.
-2. Run the launcher installer, then choose your supported original Urban Reign ISO.
-3. Select your PCSX2 folder, then select Redux 0.2 Collection alone, choose Clone or Overwrite, and apply.
-4. Open the resulting ISO in your usual game setup.
-
-A game ISO is not included. Keep the original image or `.iso.original` backup and the `.studio.json` record to restore the original game. The editor is optional for players.
-
-## Project status
-
-The launcher, complete v0.2 collection, runtime setup utility and optional editor are published as a v0.2 Alpha pre-release. Violet and Marduk deformation remains a known issue. Compatibility feedback and remaining issues can be reported through GitHub Issues.
-
-## Publishing this site
-
-In repository Settings â†’ Pages, choose **Deploy from a branch â†’ main â†’ /docs**. See [PUBLISHING.md](PUBLISHING.md) for screenshot replacement and cross-posting setup.
-
-This repository contains the release page and publishing configuration; it does not claim to include the editor's complete source. No blanket license is granted to third-party game or character assets. Not affiliated with or endorsed by the original game's publisher.
-
-## Version 0.2 screenshots
+![Expanded fighter selection](docs/assets/v0.2/roster.png)
 
 ![Expanded stage selection](docs/assets/v0.2/stages.png)
 
-![Story stages, smaller HUD and camera controls](docs/assets/v0.2/multiplayer.png)
+Version **0.2 Alpha** includes the expanded roster and stages, camera/HUD improvements, and a mouth-animation pilot for Leon, Cammy and Violet. Violet's shirt/gloves and Marduk's waist/underarms still have deformation issues. See the changelog for the complete list.
 
-![Mouth animation pilot](docs/assets/v0.2/mouth.png)
+The optional Editor is for creating or changing mods. Players only need Mod Manager and Mods.
 
-![Challenge mode retexture](docs/assets/v0.2/challenge.png)
-
-![Expanded fighter selection](docs/assets/v0.2/roster.png)
+This repository hosts the release, website and setup support. It does not include the editor's complete source. No blanket license is granted to third-party game or character assets. Not affiliated with or endorsed by the original game's publisher.
