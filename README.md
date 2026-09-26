@@ -1,8 +1,10 @@
 <p align="center"><img src="docs/assets/logo.png" alt="Urban Reign Redux" width="650"></p>
 
-[![DOWNLOAD AUTO-INSTALLER — Windows, 30 MB installer, choose your downloads](docs/assets/download-auto-installer.svg)](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)
+[![DOWNLOAD AUTO-INSTALLER — Windows, 38 MB installer, choose your downloads](docs/assets/download-auto-installer.svg)](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)
 
 **[Click here to download Auto-Installer.exe](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)** · **[Picture guide](https://jasonafex.github.io/urban-reign-redux/install/)**
+
+<p><a href="docs/install/slide-1.png"><img src="docs/install/slide-1.png" width="360" alt="Download and start the installer"></a> <a href="docs/install/slide-2.png"><img src="docs/install/slide-2.png" width="360" alt="Keep the defaults and choose the PCSX2 folder"></a> <a href="docs/install/slide-3.png"><img src="docs/install/slide-3.png" width="360" alt="Choose the game ISO and Overwrite"></a> <a href="docs/install/slide-4.png"><img src="docs/install/slide-4.png" width="360" alt="Open the patched ISO in PCSX2"></a> </p>
 
 # Urban Reign Redux
 
@@ -10,9 +12,9 @@ More fighters, more multiplayer stages, new music and menus for Urban Reign. A c
 
 ## Install in three steps
 
-1. **Download and run Auto-Installer.exe.** The **30 MB installer** includes Mod Manager. Keep the defaults to play, or use **Advanced** to choose individual characters. Editor is last and unchecked by default.
+1. **Download and run Auto-Installer.exe.** The **38 MB installer** includes Mod Manager. Keep the defaults to play, or use **Advanced** to choose individual characters. Editor is last and unchecked by default.
 2. **Choose your PCSX2 program folder.** Setup finds its Documents/OneDrive data folder and installs the required memory patch, runtime files and HD textures automatically. Keep PCSX2 closed during installation.
-3. **Open Redux Mod Manager.** Choose your supported original Urban Reign ISO, keep **Clone** and **Redux 0.2 Collection** selected, then click **Apply selected mods**. Open the new `-modded.iso` in PCSX2 from a fresh boot.
+3. **Open Redux Mod Manager.** Choose your supported original Urban Reign ISO, keep **Overwrite** and **Redux 0.2 Collection** selected, then click **Apply selected mods**. Open the patched ISO in PCSX2 from a fresh boot.
 
 **Downloads are automatic. No ZIP extraction or manual file copying.** Default textures and intro are required; only selected characters, music and Editor are downloaded. Desktop shortcuts are offered; starting with Windows is optional. The picture guide is included in the installer and available from Mod Manager.
 

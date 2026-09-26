@@ -45,3 +45,9 @@ Editor users can choose **Settings → Build Redux 0.2 collection**. Normal auth
 Runtime setup is bundled and runs automatically; no separate runtime download is needed. It is scoped to v0.2 (SLUS-21209 / AAC5DB56). ISO-based setup checks the executable against the release, allowing only the verified character-selection data changes before installing address-specific patches.
 
 A game ISO and PCSX2 are not included. The builder accepts the previously supported USA and Deluxe hashes. The verified Deluxe rebuild matched the installed test image byte for byte; a fresh clean-USA rebuild was not performed in this release pass.
+
+### Picture guide update
+
+- Added simplified visual slides to matching installer steps, the download page, and README. Click a slide to enlarge it.
+- New Mod Manager setups default to Overwrite with an original backup; existing saved build-mode choices are preserved.
+- Installer is approximately 38 MB including the offline visual guide.
