@@ -1,0 +1,14 @@
+{
+  "revision": "2026-09-30-trial13",
+  "full_selection_iso_sha256": "69dea95ed3e3e537ca7b9a95d345221b8293f499a64570d3d07e7c609ddcc0c3",
+  "installer_sha256": "4670c7b3129462ff2e788045b842300d1ae70918dc16f556efca8d764bee5cf8",
+  "installer_bytes": 55186430,
+  "components": 24,
+  "checks": [
+    "Full-selection package build matches installed Trial 13 ISO",
+    "Core-only and Kazuya-only character layers verified",
+    "Fresh full installer with optional Editor passed",
+    "Installed Mod Manager build matches installed Trial 13 ISO"
+  ],
+  "runtime_scope": "Packaging tests reuse the Trial 13 runtime validation described in the combat patch notes; not an exhaustive multiplayer test."
+}

@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/assets/logo.png" alt="Urban Reign Redux" width="650"></p>
 
-[![DOWNLOAD AUTO-INSTALLER — Windows, 43 MB installer, choose your downloads](docs/assets/download-auto-installer.svg)](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)
+[![DOWNLOAD AUTO-INSTALLER — Windows, 55 MB installer, choose your downloads](docs/assets/download-auto-installer.svg)](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)
 
 **[Click here to download Auto-Installer.exe](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)** · **[Picture guide](https://jasonafex.github.io/urban-reign-redux/install/)**
 
@@ -10,9 +10,11 @@
 
 More fighters, more multiplayer stages, new music and menus for Urban Reign. A community project by **Jasonafex**.
 
+**September 30 update:** Downloads now include the Trial 13 combat and character fixes. Existing players should run the latest installer again, then rebuild from their supported original game or original backup. [Patch notes](docs/patch-notes/2026-09-29-combat-playtest.md).
+
 ## Install in three steps
 
-1. **Download and run Auto-Installer.exe.** The **43 MB installer** includes Mod Manager. Keep the defaults to play, or use **Advanced** to choose individual characters. Editor is last and unchecked by default.
+1. **Download and run Auto-Installer.exe.** The **55 MB installer** includes Mod Manager. Keep the defaults to play, or use **Advanced** to choose individual characters. Editor is last and unchecked by default.
 2. **Choose your PCSX2 program folder.** Setup finds its Documents/OneDrive data folder and installs the required memory patch, runtime files and HD textures automatically. Keep PCSX2 closed during installation.
 3. **Open Redux Mod Manager.** Choose your supported original Urban Reign ISO, keep **Overwrite** and **Redux 0.2 Collection** selected, then click **Apply selected mods**. Open the patched ISO in PCSX2 from a fresh boot.
 

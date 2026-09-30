@@ -1,8 +1,18 @@
 # Urban Reign Redux 0.2 Alpha
 
+## Public download refresh — 2026-09-30
+
+- Auto-Installer now downloads the latest Trial 13 game patches, including the installed character repairs, combat changes, glasses-stability baseline and Jack jaw fix.
+- Refreshed the core, all 21 character packages, music package, Mod Manager, optional Editor and runtime setup. Installer is approximately 55 MB; selected content downloads separately.
+- Full selection reproduces the installed Trial 13 ISO byte-for-byte. Core-only and Kazuya-only builds also passed character-layer checks.
+- Character-specific attack, idle, throw and green-SPA routing follows the selected character packages. Skipped replacements retain their native routing.
+- Download names are versioned and verified by SHA-256. Existing installers keep their original package URLs; download the new installer to update.
+- Run the current installer again with your chosen characters, then rebuild using your supported original ISO or retained original backup. Fresh-boot the result. Existing user-edited source mods are preserved.
+- This refresh distributes implemented changes; outstanding items in the combat patch notes remain unfinished.
+
 ## Combat playtest update — 2026-09-29
 
-Local Trial 13 combat update; [full patch notes](docs/patch-notes/2026-09-29-combat-playtest.md). Public installer unchanged.
+Trial 13 combat update; [full patch notes](docs/patch-notes/2026-09-29-combat-playtest.md). Included in the September 30 public download refresh.
 
 ## Installer reliability update — 2026-09-26
 - Installer is approximately 43 MB; optional content still downloads only when selected.

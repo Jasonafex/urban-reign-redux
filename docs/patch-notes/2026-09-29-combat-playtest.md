@@ -1,6 +1,6 @@
 # Combat playtest update — September 29, 2026
 
-This update is installed locally as **Trial 13 Combat Follow-ups**. The public 0.2 Alpha installer is unchanged; this commit documents the playtest and preserves its combat implementation. It is not a new public binary release.
+This update is available through the **September 30 public Auto-Installer refresh**, matching the installed **Trial 13 Combat Follow-ups** build. Download the current installer and rebuild from your supported original game image to receive it.
 
 ## Combat and recovery
 - Imported final attacks retain their full recovery, including authored get-up sequences. Added a guard against cancelling terminal recovery with another SPA.
@@ -33,7 +33,7 @@ This update is installed locally as **Trial 13 Combat Follow-ups**. The public 0
 - Complete fresh-selection validation for the remaining green-mode/Heihachi cases.
 - Remaining community stage/selection/HUD bugs, outstanding character ports and user-edited voice replacements.
 
-## Local build fingerprint
+## Full-selection build fingerprint
 SHA-256: `69dea95ed3e3e537ca7b9a95d345221b8293f499a64570d3d07e7c609ddcc0c3`
 
 The installed ISO is not distributed in this repository.

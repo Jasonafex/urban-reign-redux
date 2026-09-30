@@ -29,3 +29,7 @@ The workflow is prepared but has not been run; it requires your accounts and ini
 I found no documented self-service option for adding Urban Reign or an official upload API. The public site is focused on Tekken. Ask staff whether they will accept an Urban Reign game entry before selecting a category. Do not mark it as a Tekken 7/8 mod. Their footer links the Modding Zaibatsu community as a contact route; a short request is provided in the upload kit. This request has not been sent. [Site](https://tekkenmods.com/) · [Guidelines](https://tekkenmods.com/guidelines).
 
 Once accepted, reuse the prepared description, screenshots and same ZIP through the site's upload form. Keep the final mod-page URLs in the website release board.
+
+## Current public game revision — September 30, 2026
+
+The current Auto-Installer embeds the dated Trial 13 catalog in `runtime/installer/catalog.json`. All 24 component URLs use the `-20260930` suffix. Keep earlier component URLs intact for older installers. The current public installer builds the latest Trial 13 game; `runtime/installer/release-validation.json` records the installer and full-selection ISO hashes. An installer downloaded before this refresh must be downloaded again to pick up the new catalog.

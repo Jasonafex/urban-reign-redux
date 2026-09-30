@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -11,6 +11,47 @@ using System.Web.Script.Serialization;
 // Per-game companion setup. No emulator launch, global settings or ISO writes.
 static class ExpansionSetup {
  const string Start="// BEGIN REDUX MANAGED CAMERA",End="// END REDUX MANAGED CAMERA";
+ public class CharacterRange {public int offset;public string custom,original;}
+ public class OriginalSlot {public int offset,high;}
+ public class CharacterNormalization {public int elf_size,grid_offset,count_offset;public string grid_custom,count_custom;public CharacterRange[] ranges;public OriginalSlot[] characters;}
+ static CharacterNormalization CharacterSpec(){using(var stream=System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("ReduxCharacterRanges.json")){if(stream==null)return null;using(var r=new StreamReader(stream))return new JavaScriptSerializer().Deserialize<CharacterNormalization>(r.ReadToEnd());}}
+ public static void PrepareSelectionElf(byte[] elf){
+  var spec=CharacterSpec();if(spec==null||elf.Length!=spec.elf_size)throw new Exception("Character selection data is missing.");
+  var hidden=new HashSet<byte>();foreach(var c in spec.characters){var range=spec.ranges.Single(r=>r.offset==c.offset);if(elf.Skip(c.offset).Take(160).SequenceEqual(Unhex(range.original)))hidden.Add((byte)c.high);}
+  byte[] original=Unhex(spec.grid_custom);var records=new List<byte[]>();
+  for(int i=0;i<34;i++){var ids=original.Skip(i*9+1).Take(8).Where(id=>id!=255&&!hidden.Contains(id)).ToArray();if(ids.Length==0)continue;var record=Enumerable.Repeat((byte)255,9).ToArray();record[0]=original[i*9];Buffer.BlockCopy(ids,0,record,1,ids.Length);records.Add(record);}
+  int count=records.Count;while(records.Count<34){var record=Enumerable.Repeat((byte)255,9).ToArray();record[0]=0;records.Add(record);}
+  Buffer.BlockCopy(records.SelectMany(r=>r).ToArray(),0,elf,spec.grid_offset,34*9);uint word=BitConverter.ToUInt32(Unhex(spec.count_custom),0);Buffer.BlockCopy(BitConverter.GetBytes((word&0xffff0000u)|(uint)count),0,elf,spec.count_offset,4);
+ }
+ static byte[] Unhex(string text){var b=new byte[text.Length/2];for(int i=0;i<b.Length;i++)b[i]=Convert.ToByte(text.Substring(i*2,2),16);return b;}
+ public static bool KnownExecutable(byte[] elf){
+  const string expected="3c93672407733d1dacec131955e9db4555f2673ac8fc5b5becb3e0b0c91b6992";
+  if(Hash(elf)==expected)return true;
+  {
+   CharacterNormalization spec=CharacterSpec();if(spec==null)return false;
+   if(elf.Length!=spec.elf_size)return false;var normalized=(byte[])elf.Clone();
+   var selected=(byte[])elf.Clone();PrepareSelectionElf(selected);
+   foreach(var pair in new[]{Tuple.Create(spec.grid_offset,Unhex(spec.grid_custom)),Tuple.Create(spec.count_offset,Unhex(spec.count_custom))}){
+    var actual=elf.Skip(pair.Item1).Take(pair.Item2.Length).ToArray();if(!actual.SequenceEqual(pair.Item2)&&!actual.SequenceEqual(selected.Skip(pair.Item1).Take(pair.Item2.Length)))return false;Buffer.BlockCopy(pair.Item2,0,normalized,pair.Item1,pair.Item2.Length);
+   }
+   foreach(var range in spec.ranges){var custom=Unhex(range.custom);var original=Unhex(range.original);if(range.offset<0||range.offset>elf.Length-custom.Length||custom.Length!=original.Length)return false;
+    var actual=elf.Skip(range.offset).Take(custom.Length).ToArray();if(!actual.SequenceEqual(custom)&&!actual.SequenceEqual(original))return false;Buffer.BlockCopy(custom,0,normalized,range.offset,custom.Length);
+   }
+   const int checksum=0x60d000+0x9fffc;uint crc=0;for(int i=0;i+4<=normalized.Length;i+=4)crc^=BitConverter.ToUInt32(normalized,i);Buffer.BlockCopy(BitConverter.GetBytes(BitConverter.ToUInt32(normalized,checksum)^crc^0xaac5db56u),0,normalized,checksum,4);
+   return Hash(normalized)==expected;
+  }
+ }
+ public static bool RecoverSelectionElf(byte[] elf){
+  var spec=CharacterSpec();if(spec==null||elf.Length!=spec.elf_size)return false;
+  foreach(var r in spec.ranges){var value=elf.Skip(r.offset).Take(r.custom.Length/2).ToArray();if(!value.SequenceEqual(Unhex(r.custom))&&!value.SequenceEqual(Unhex(r.original)))return false;}
+  byte[] canonical;using(var stream=System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("ReduxKnownExecutable.gz")){
+   if(stream==null)return false;using(var gz=new System.IO.Compression.GZipStream(stream,System.IO.Compression.CompressionMode.Decompress))using(var output=new MemoryStream()){gz.CopyTo(output);canonical=output.ToArray();}}
+  if(canonical.Length!=elf.Length||Hash(canonical)!="3c93672407733d1dacec131955e9db4555f2673ac8fc5b5becb3e0b0c91b6992")return false;
+  foreach(var r in spec.ranges)Buffer.BlockCopy(elf,r.offset,canonical,r.offset,r.custom.Length/2);
+  PrepareSelectionElf(canonical);const int at=0x60d000+0x9fffc;uint crc=0;for(int i=0;i+4<=canonical.Length;i+=4)crc^=BitConverter.ToUInt32(canonical,i);Buffer.BlockCopy(BitConverter.GetBytes(BitConverter.ToUInt32(canonical,at)^crc^0xaac5db56u),0,canonical,at,4);
+  if(!KnownExecutable(canonical))return false;
+  DiagnosticLog.Write("Recovered verified executable; valid character choices preserved. Before="+Hash(elf)+" After="+Hash(canonical));Buffer.BlockCopy(canonical,0,elf,0,elf.Length);return true;
+ }
  public static string ExpandedBuildId(string iso){
   var volume=ReadAt(iso,32768,2048);if(Encoding.ASCII.GetString(volume,1,5)!="CD001")throw new Exception("Could not inspect the built ISO.");
   uint size=BitConverter.ToUInt32(volume,166);if(size>1048576)throw new Exception("Invalid ISO root.");
@@ -33,7 +74,7 @@ static class ExpansionSetup {
   for(int p=0;p<root.Length;){int n=root[p];if(n==0){p=(p/2048+1)*2048;continue;}
    if(Encoding.ASCII.GetString(root,p+33,root[p+32])=="SLUS_212.09;1"){
     var elf=ReadAt(iso,(long)BitConverter.ToUInt32(root,p+2)*2048,(int)BitConverter.ToUInt32(root,p+10));
-    if(Hash(elf)!="f9046378651ec3e3bc9e6895e5fb01022b37ad9be60a77fdb21de27599e86f09")throw new Exception("ISO built, but its executable differs from the bundled runtime preset.");
+    if(!KnownExecutable(elf))throw new Exception("ISO built, but its executable differs from the bundled runtime preset.");
    }p+=n;
   }
   return ConfigureRuntime(emulator);
@@ -167,3 +208,13 @@ static class SetupProgram {
  [STAThread] static int Main(string[] args){try{if(args.Length>0&&args[0]=="--self-test"){ExpansionSetup.Test();return 0;}if(args.Length==2&&args[0]=="--configure"){Console.WriteLine(ExpansionSetup.ConfigureRuntime(args[1]));return 0;}if(args.Length==3&&args[0]=="--iso"){Console.WriteLine(ExpansionSetup.AutoMemory(args[1],args[2]));return 0;}if(args.Length==4&&args[0]=="--install"){ExpansionSetup.Install(args[1],args[2],true,args[3]);return 0;}Application.EnableVisualStyles();using(var d=new FolderBrowserDialog{Description="Select your PCSX2 installation or data folder"})if(d.ShowDialog()==DialogResult.OK)MessageBox.Show(ExpansionSetup.ConfigureRuntime(d.SelectedPath));return 0;}catch(Exception e){Console.Error.WriteLine(e.Message);return 1;}}
 }
 #endif
+
+// Durable, shareable diagnostics: no game bytes, credentials, or controller settings.
+static class DiagnosticLog {
+ static readonly object Gate=new object();public static string CurrentPath;
+ public static void Begin(string operation){lock(Gate){try{string root=Environment.GetEnvironmentVariable("REDUX_LOG_DIRECTORY");if(String.IsNullOrEmpty(root))root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Urban Reign Redux","Logs");Directory.CreateDirectory(root);CurrentPath=Path.Combine(root,operation+"-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff")+"-"+Guid.NewGuid().ToString("N").Substring(0,6)+".log");}catch{CurrentPath=Path.Combine(Path.GetTempPath(),"Redux-"+operation+"-"+Guid.NewGuid().ToString("N")+".log");}Write("Operation="+operation+" UTC="+DateTime.UtcNow.ToString("o")+" OS="+Environment.OSVersion+" Runtime="+Environment.Version);try{Write("Executable SHA256="+HashFile(System.Reflection.Assembly.GetExecutingAssembly().Location));}catch{}}}
+ public static void OpenFolder(){try{string root=CurrentPath==null?Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Urban Reign Redux","Logs"):Path.GetDirectoryName(CurrentPath);Directory.CreateDirectory(root);Process.Start(new ProcessStartInfo(root){UseShellExecute=true});}catch(Exception e){MessageBox.Show(e.Message,"Support logs");}}
+ public static string HashFile(string path){using(var h=SHA256.Create())using(var f=File.OpenRead(path))return BitConverter.ToString(h.ComputeHash(f)).Replace("-","").ToLowerInvariant();}
+ public static void Write(string message){lock(Gate){try{if(CurrentPath==null)return;string home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);if(!String.IsNullOrEmpty(home))message=message.Replace(home,"%USERPROFILE%");File.AppendAllText(CurrentPath,DateTime.UtcNow.ToString("o")+" "+message+Environment.NewLine);}catch{}}}
+ public static Exception Failure(Exception e){Write("FAILED: "+e);return new Exception(e.Message+Environment.NewLine+Environment.NewLine+"Support log: "+CurrentPath,e);}
+}
