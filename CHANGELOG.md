@@ -1,5 +1,9 @@
 # Urban Reign Redux 0.2 Alpha
 
+## Combat playtest update — 2026-09-29
+
+Local Trial 13 combat update; [full patch notes](docs/patch-notes/2026-09-29-combat-playtest.md). Public installer unchanged.
+
 ## Installer reliability update — 2026-09-26
 - Installer is approximately 43 MB; optional content still downloads only when selected.
 - USA CHD support: conversion is automatic, the input is preserved, and output is a separate ISO. The supplied single-track MODE1/2048 USA CHD passed conversion and a full build.
