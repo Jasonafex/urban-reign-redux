@@ -1,3 +1,25 @@
+## October 3 update — 0.4 in validation
+
+**0.4 is not yet a public download.** The installer below is still the September 30 build. The previous manual package was labelled 0.3 on Google Drive; the GitHub installer is tagged v0.2.0.
+
+Changes prepared for the 0.4 candidate:
+
+- New independent combat and announcer voice banks for **Baek, Nina and Carl Johnson**.
+- Dedicated SPA and Fighter File recordings where supplied; heavy attack lines cover missing SPA lines, and taunts cover missing Fighter File lines.
+- Audio-table repairs addressing incorrect sound assignments, including footsteps playing attack voices in Free Mode mission 5. Intermittent missing/duplicated sounds still need broader testing.
+- Baek and Nina combat follow-ups: increased hitstun on selected later contacts, revised finishers and movement. Violet neutral/down timing and up-string movement, landing and kip-up revisions.
+- Baek gi-trim UV repair and hair/belt swing corrections; returned model repairs integrated for Violet, Paul, Nina and Carl Johnson.
+- New selection portraits for Baek, Paul, Kazuya, Nina and Carl Johnson.
+- Experimental healthbar skin rolled back.
+
+**Public roster:** Jeff, Snake, Vergence, Devil Jin and Renamon will be left out of 0.4 while unfinished.
+
+**Before release:** verify fresh-boot voice playback (including SPA and Fighter File), sound assignments and roster navigation; finish and verify the manual **0.4 + Textures** package and download link. Final patch notes since the 0.3 manual release will accompany the package. Paul hair/texture polish and remaining model cleanup are deferred; Nina mouth animation and reported UV issues still need follow-up.
+
+These are candidate changes, not final release validation. Start changed builds from a fresh boot: old emulator save states can restore old sound tables and other data.
+
+---
+
 <p align="center"><img src="docs/assets/logo.png" alt="Urban Reign Redux" width="650"></p>
 
 [![DOWNLOAD AUTO-INSTALLER — Windows, 55 MB installer, choose your downloads](docs/assets/download-auto-installer.svg)](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)
