@@ -1,3 +1,46 @@
+# Urban Reign Redux 0.4 — October 3, 2026
+
+[Download 0.4 + Textures (1.75 GB)](https://drive.google.com/file/d/127deHyx4wlYcyniWvTe1pl8oEXROJMxh/view) · [Release page](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.4.0)
+
+Complete manual package: ISO, 167 textures, ExtraMemory game setting, setup instructions and checksums. The earlier Auto-Installer is a separate legacy release.
+
+## Changes since the 0.3 manual release
+
+### Voices and audio
+- Added independent combat and announcer voice banks for Baek, Nina and Carl Johnson, plus SPA and Fighter File recordings across the current roster.
+- Missing SPA lines use heavy attack recordings; missing Fighter File lines use taunts.
+- Repaired expanded voice tables overwriting other sound categories, including footsteps playing attack voices.
+- Fixed loading/classification of added voice streams, unintended random SPA skips, and short attack voices blocking the same fighter's SPA recording.
+- Corrected Baek damage samples and shared sample aliases; added the tested Free Mode narration guard.
+
+### Combat and movesets
+- **Nina:** new normal strings, running-up attack, SPA sequences, directional throws and Twisted Mind. More hitstun on selected later contacts; revised knockback finishers, side-string reactions and final-lunge recovery. Slower first up/side startup. Twisted Mind has more startup travel and now retains a 25% recovery reduction. SPA3 is red attack-boost mode.
+- **Baek:** new normal/green strings, running attacks, SPAs and throws. More hitstun on selected later contacts; revised knockback, medium-stun and spike finishers. Running-up has doubled forward movement and launches. Green side uses the revised 10-hit route plus Double Claymore; green low uses Snake Kick → Baek's Rush Low → Snake Rocket. SPA2 is 12% faster and ends with heavy horizontal knockback.
+- **Cammy:** updated directional throws, including only the first Double Heel Hold stage before release; string/SPA timing corrections retained.
+- **Heihachi:** updated directional throws and paired recovery/getup alignment.
+- **Hwoarang:** corrected right stance; SPA3 now gives purple attack boost + counter.
+- **Violet:** revised neutral/down timing, up-string forward travel, back landing and kip-up recovery.
+- Included further combat/recovery and paired-grab endpoint corrections for Leon, Kiryu, Jin and Heihachi.
+
+### Models and presentation
+- Integrated returned Violet, Paul and Nina model repairs and Carl Johnson's face repair with matching texture updates.
+- Fixed Baek's stretched gi-trim UVs and hair/belt swing binding.
+- Added the supplied Baek, Nina, Paul, Kazuya and Carl Johnson selection portraits.
+- Reverted the experimental healthbar skin; faulty healthbar replacements are omitted.
+
+### Known issues
+Some model UV/shading defects and Nina's speaking animation remain. Nina's final side-string follow-through can still need adjustment after knockback. Audio routing and Baek SPA stream loading were checked, but audible playback and scene-transition testing are not exhaustive; occasional audio issues may remain.
+
+**Fresh-boot 0.4. Do not resume an older emulator save state.** Memory-card saves may still be used.
+
+ISO SHA-256: `b96fb209c87f9546377a5139381e4452b16acd4031aa66a09fd885549ce5dca3`
+
+ZIP SHA-256: `b475e759e311b36a8c8a7f98b9834a97c40dee4b59e2449096bb724e92ed2977`
+
+---
+
+# Earlier release history
+
 # Urban Reign Redux 0.2 Alpha
 
 ## Public download refresh — 2026-09-30
