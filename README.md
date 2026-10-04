@@ -1,63 +1,46 @@
-## October 3 update — 0.4 in validation
+![Urban Reign Redux](docs/assets/logo.png)
 
-**0.4 is not yet a public download.** The installer below is still the September 30 build. The previous manual package was labelled 0.3 on Google Drive; the GitHub installer is tagged v0.2.0.
+# Urban Reign Redux 0.4
 
-Changes prepared for the 0.4 candidate:
+More fighters, revised movesets, new voices, music and menus for Urban Reign. A community project by **Jasonafex**.
 
-- New independent combat and announcer voice banks for **Baek, Nina and Carl Johnson**.
-- Dedicated SPA and Fighter File recordings where supplied; heavy attack lines cover missing SPA lines, and taunts cover missing Fighter File lines.
-- Audio-table repairs addressing incorrect sound assignments, including footsteps playing attack voices in Free Mode mission 5. Intermittent missing/duplicated sounds still need broader testing.
-- Baek and Nina combat follow-ups: increased hitstun on selected later contacts, revised finishers and movement. Violet neutral/down timing and up-string movement, landing and kip-up revisions.
-- Baek gi-trim UV repair and hair/belt swing corrections; returned model repairs integrated for Violet, Paul, Nina and Carl Johnson.
-- New selection portraits for Baek, Paul, Kazuya, Nina and Carl Johnson.
-- Experimental healthbar skin rolled back.
+## Download
 
-**Public roster:** Jeff, Snake, Vergence, Devil Jin and Renamon will be left out of 0.4 while unfinished.
+**[Download 0.4 + Textures — complete manual package, 1.75 GB](https://drive.google.com/file/d/127deHyx4wlYcyniWvTe1pl8oEXROJMxh/view)**
 
-**Before release:** verify fresh-boot voice playback (including SPA and Fighter File), sound assignments and roster navigation; finish and verify the manual **0.4 + Textures** package and download link. Final patch notes since the 0.3 manual release will accompany the package. Paul hair/texture polish and remaining model cleanup are deferred; Nina mouth animation and reported UV issues still need follow-up.
+[Full patch notes since 0.3 and checksums](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.4.0) · [Project website](https://jasonafex.github.io/urban-reign-redux/) · [Report an issue](https://github.com/Jasonafex/urban-reign-redux/issues)
 
-These are candidate changes, not final release validation. Start changed builds from a fresh boot: old emulator save states can restore old sound tables and other data.
+Released October 3, 2026. The Google Drive download is available to anyone with the link; no sign-in is required.
 
----
+The ZIP includes:
+- Urban Reign Redux 0.4.iso
+- 167 matching replacement textures
+- PCSX2 ExtraMemory game setting
+- START HERE.txt, patch notes and SHA-256 checksums
 
-<p align="center"><img src="docs/assets/logo.png" alt="Urban Reign Redux" width="650"></p>
+Supply your own PCSX2 installation and BIOS. **No mod installer or Editor is required.** The earlier September 30 Auto-Installer does not install this 0.4 build.
 
-[![DOWNLOAD AUTO-INSTALLER — Windows, 55 MB installer, choose your downloads](docs/assets/download-auto-installer.svg)](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)
+## Manual setup
 
-**[Click here to download Auto-Installer.exe](https://github.com/Jasonafex/urban-reign-redux/releases/latest/download/Auto-Installer.exe)** · **[Picture guide](https://jasonafex.github.io/urban-reign-redux/install/)**
+1. Extract the ZIP, read **START HERE.txt**, and put the new ISO in your games folder.
+2. Close PCSX2. Merge the supplied game setting into its data folder and install the included textures. Back up older Redux texture packs outside the active texture folder to avoid conflicts. Enable **Load Textures**.
+3. **Fresh-boot the new ISO. Do not resume an older emulator save state.** Memory-card saves may still be used.
 
-<p><a href="docs/install/slide-1.png"><img src="docs/install/slide-1.png" width="360" alt="Download and start the installer"></a> <a href="docs/install/slide-2.png"><img src="docs/install/slide-2.png" width="360" alt="Keep the defaults and choose the PCSX2 folder"></a> <a href="docs/install/slide-3.png"><img src="docs/install/slide-3.png" width="360" alt="Choose the game ISO and Overwrite"></a> <a href="docs/install/slide-4.png"><img src="docs/install/slide-4.png" width="360" alt="Open the patched ISO in PCSX2"></a> </p>
+This is the USA SLUS-21209 build. PCSX2 must support ExtraMemory; tested with PCSX2 2.7.403.
 
-# Urban Reign Redux
+## What's new since 0.3
 
-More fighters, more multiplayer stages, new music and menus for Urban Reign. A community project by **Jasonafex**.
+- Independent Baek, Nina and Carl Johnson combat/announcer banks; new SPA and Fighter File recordings with heavy-attack/taunt fallbacks.
+- Expanded voice-table and sound-routing repairs, added stream loading fixes, and SPA voice admission corrections.
+- Nina and Baek moveset revisions, stronger later-string hitstun, updated finishers, throws and SPAs.
+- Hwoarang right stance and purple SPA3; Violet timing, movement and kip-up corrections; Cammy/Heihachi throws and further combat/grab recovery fixes.
+- Updated Violet, Paul and Nina models, Carl Johnson face repair, Baek gi-trim UV/swing fixes, and new selection portraits.
+- Experimental healthbar skin reverted.
 
-**September 30 update:** Downloads now include the Trial 13 combat and character fixes. Existing players should run the latest installer again, then rebuild from their supported original game or original backup. [Patch notes](docs/patch-notes/2026-09-29-combat-playtest.md).
+See the [complete release notes](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.4.0) for character-specific changes. Some model UV/shading defects, Nina's speaking animation and side-string follow-through remain; audible playback and scene-transition testing are not exhaustive.
 
-## Install in three steps
+## About
 
-1. **Download and run Auto-Installer.exe.** The **55 MB installer** includes Mod Manager. Keep the defaults to play, or use **Advanced** to choose individual characters. Editor is last and unchecked by default.
-2. **Choose your PCSX2 program folder.** Setup finds its Documents/OneDrive data folder and installs the required memory patch, runtime files and HD textures automatically. Keep PCSX2 closed during installation.
-3. **Open Redux Mod Manager.** Choose your supported original Urban Reign ISO, keep **Overwrite** and **Redux 0.2 Collection** selected, then click **Apply selected mods**. Open the patched ISO in PCSX2 from a fresh boot.
-
-**Downloads are automatic. No ZIP extraction or manual file copying.** Default textures and intro are required; only selected characters, music and Editor are downloaded. Desktop shortcuts are offered; starting with Windows is optional. The picture guide is included in the installer and available from Mod Manager.
-
-You need an internet connection for setup, Windows 64-bit, PCSX2 with ExtraMemory support, and your own supported Urban Reign ISO. PCSX2 and the game are not included. The release was tested with PCSX2 2.7.403. Open PCSX2 once and close it before running setup.
-
-## See what is included
-
-[Explore the screenshots and full project rundown](https://jasonafex.github.io/urban-reign-redux/) · [Changes and known issues](CHANGELOG.md) · [Report an issue](https://github.com/Jasonafex/urban-reign-redux/issues)
-
-![Expanded fighter selection](docs/assets/v0.2/roster.png)
-
-![Expanded stage selection](docs/assets/v0.2/stages.png)
-
-Version **0.2 Alpha** includes the expanded roster and stages, camera/HUD improvements, and a mouth-animation pilot for Leon, Cammy and Violet. Violet's shirt/gloves and Marduk's waist/underarms still have deformation issues. See the changelog for the complete list.
-
-The optional Editor is for creating or changing mods. Players only need Mod Manager and Mods.
+[Explore the project and screenshots](https://jasonafex.github.io/urban-reign-redux/) · [Release history](CHANGELOG.md)
 
 This repository hosts the release, website and setup support. It does not include the editor's complete source. No blanket license is granted to third-party game or character assets. Not affiliated with or endorsed by the original game's publisher.
-
-### Game compatibility and support
-
-Use a supported USA or verified Deluxe image. USA CHD converts automatically and is kept unchanged. Europe and Japan are not supported. If setup or building fails, use **Support logs** in Mod Manager (or click the installer error) and share the latest log.
