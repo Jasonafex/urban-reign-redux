@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="Urban Reign — deterministic 60Hz 3D multiplayer brawler engine in the browser." />
+    <title>Urban Reign — Web</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #e8e6e1;
+        --ash: #16181c;
+        --edge: #2a2e35;
+        --hot: #d8443c;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--ash);
+        color: var(--ink);
+        font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+        overflow: hidden;
+      }
+      #app { position: fixed; inset: 0; }
+      #app canvas { display: block; width: 100%; height: 100%; }
+      #boot {
+        position: fixed; inset: 0;
+        display: grid; place-content: center; gap: 0.75rem;
+        text-align: center;
+        pointer-events: none;
+        transition: opacity 240ms ease;
+      }
+      #boot h1 { margin: 0; font-size: 1.1rem; letter-spacing: 0.32em; text-transform: uppercase; }
+      #boot p { margin: 0; color: #8b9099; font-size: 0.8rem; letter-spacing: 0.08em; }
+      #boot[data-state="running"] { opacity: 0; }
+      #boot[data-state="failed"] p { color: var(--hot); }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="boot" data-state="pending">
+      <h1>Urban Reign</h1>
+      <p id="boot-status">booting 60Hz arena&hellip;</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

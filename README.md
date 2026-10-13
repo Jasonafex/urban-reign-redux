@@ -39,6 +39,21 @@ This is the USA SLUS-21209 build. PCSX2 must support ExtraMemory; tested with PC
 
 See the [complete release notes](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.4.0) for character-specific changes. Some model UV/shading defects, Nina's speaking animation and side-string follow-through remain; audible playback and scene-transition testing are not exhaustive.
 
+## Web client (Phase 0)
+
+This repository also hosts **urban-reign-web**, a deterministic 60Hz 3D multiplayer brawler engine for the browser, modelled on Namco's 2005 Urban Reign. Phase 0 is the scaffolding: fixed-timestep loop, headless simulation core, baseline moveset, and the four verification gates required by `AGENTS.md`.
+
+```bash
+npm install
+npm run dev        # http://localhost:5173 (also exposed on the LAN for phones/tablets)
+npm run typecheck  # gate 1 — tsc --noEmit
+npm test           # gate 2 — determinism, replay and architecture suite
+npm run build      # gate 3 — tsc && vite build
+npm run report     # gate 4 — declared vs measured frame data, exits non-zero on any discrepancy
+```
+
+The simulation (`src/sim`, `src/combat`, `src/core`) is DOM-free and integer fixed-point, so the same sources run unchanged in the browser, in the test runner and in the balance report. See [`AGENTS.md`](AGENTS.md) for the architecture and gate definitions.
+
 ## About
 
 [Explore the project and screenshots](https://jasonafex.github.io/urban-reign-redux/) · [Release history](CHANGELOG.md)

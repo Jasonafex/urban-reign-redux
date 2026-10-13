@@ -1,0 +1,29 @@
+{
+  "name": "urban-reign-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic 60Hz 3D multiplayer brawler engine — Urban Reign (Namco, 2005) modelled in the browser.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "report": "node tools/feel-report.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7"
+  }
+}

@@ -9,3 +9,7 @@
 upload-kit/
 node_modules/
 __pycache__/
+
+# web client build output
+dist/
+*.tsbuildinfo
