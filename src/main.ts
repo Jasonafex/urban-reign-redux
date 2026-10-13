@@ -10,8 +10,9 @@
 
 import * as THREE from 'three';
 import { ARENA_HALF_EXTENT, FP_SCALE, RENDER, TICK_HZ } from './config';
+import type { MoveStance } from './combat/moveset';
 import { startFixedLoop } from './core/loop';
-import { MatchRunner, type FrameInput } from './sim/runner';
+import { CHAIN_PRESS, MatchRunner, NEUTRAL_INPUT, type FrameInput } from './sim/runner';
 import { isHit, type SimEvent } from './sim/events';
 
 const SLOT_COLORS = [0xd8443c, 0x7dd83c, 0x3c8fd8, 0xd8b23c] as const;
@@ -25,18 +26,45 @@ interface FighterProxy {
 /** Latest keyboard state. Read (never written) by the sim tick; written only by DOM events. */
 const keys = new Set<string>();
 
+/**
+ * Attack press waiting to be consumed, edge-detected.
+ *
+ * `FrameInput.attack` is read by the sim on *every* actionable tick, so feeding it straight from
+ * `keys.has(...)` makes a held key re-trigger the whole chain the instant it recovers — a held Piston
+ * Gun would fire its five barrels forever. Latching on keydown and clearing once the tick has seen
+ * it makes one physical press mean exactly one button input, which is what the sim expects.
+ *
+ * The latch is dropped whether or not the fighter could act on it, so there is no input buffering
+ * yet: a press during recovery is lost. That is a deliberate Phase 1 simplification, not an
+ * oversight — buffering is a netcode-visible behaviour and belongs with the rollback work.
+ */
+let attackLatch: string | null = null;
+
+/**
+ * Directional stance from the movement keys, for the 4-way chain branching (AGENTS.md §5).
+ * Held direction picks which of the four chains a bare attack press starts.
+ */
+function readStance(): MoveStance {
+  if (keys.has('KeyW')) return 'up';
+  if (keys.has('KeyS')) return 'down';
+  if (keys.has('KeyA') || keys.has('KeyD')) return 'side';
+  return 'neutral';
+}
+
 function readInput(slot: number): FrameInput {
   if (slot !== 0) {
-    // Only player 1 is wired up in Phase 0; the remaining slots idle (they still exist in the
+    // Only player 1 is wired up in Phase 1; the remaining slots idle (they still exist in the
     // hash and still get simulated, which is exactly what the determinism suite needs).
-    return { moveX: 0, moveZ: 0, attack: null, guard: 'none' };
+    return { ...NEUTRAL_INPUT };
   }
-  const attack = keys.has('KeyJ') ? 'jab' : keys.has('KeyK') ? 'straight' : keys.has('KeyL') ? 'kick' : null;
+  const attack = attackLatch;
   return {
     moveX: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0),
     moveZ: (keys.has('KeyS') ? 1 : 0) - (keys.has('KeyW') ? 1 : 0),
     attack,
+    stance: readStance(),
     guard: keys.has('ShiftLeft') ? 'high' : keys.has('KeyC') ? 'low' : 'none',
+    dodge: keys.has('KeyU') ? 'high' : keys.has('KeyI') ? 'low' : 'none',
   };
 }
 
@@ -170,13 +198,23 @@ function boot(): void {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     keys.add(event.code);
+    // `event.repeat` is filtered so holding a key does not re-latch the press on every OS repeat.
+    if (event.repeat) {
+      return;
+    }
+    if (event.code === 'KeyJ') attackLatch = CHAIN_PRESS;
+    else if (event.code === 'KeyK') attackLatch = 'straight';
+    else if (event.code === 'KeyL') attackLatch = 'kick';
   };
   const onKeyUp = (event: KeyboardEvent): void => {
     keys.delete(event.code);
   };
   globalThis.addEventListener?.('keydown', onKeyDown);
   globalThis.addEventListener?.('keyup', onKeyUp);
-  globalThis.addEventListener?.('blur', () => keys.clear());
+  globalThis.addEventListener?.('blur', () => {
+    keys.clear();
+    attackLatch = null;
+  });
 
   const loop = startFixedLoop({
     fixedUpdate: (dt) => {
@@ -184,6 +222,9 @@ function boot(): void {
         dt,
         runner.fighters.map((fighter) => readInput(fighter.slot)),
       );
+      // One physical press is one button input: clear the latch after the tick that consumed it,
+      // so holding the key cannot re-trigger the chain the moment the fighter recovers.
+      attackLatch = null;
       if (events.length > 0) {
         lastEvents = events;
       }

@@ -9,6 +9,7 @@
  * future tick, add it to that list in the same commit.
  */
 
+import { getArchetype } from '../combat/archetypes';
 import { DEFAULT_MAX_HEALTH, DEFAULT_SPA_MAX, FP_SCALE } from '../config';
 
 export type FighterState =
@@ -21,7 +22,12 @@ export type FighterState =
   | 'blockstun'
   | 'launched'
   | 'down'
-  | 'getup';
+  | 'getup'
+  /** High/low dodge. `stateFrame` is the window counter — see `DODGE_*` in `src/config.ts`. */
+  | 'dodge_high'
+  | 'dodge_low'
+  /** Holding a charged special (Jack-5's five-level Gigaton). */
+  | 'charging';
 
 /** High guard covers mid and high strikes; low guard covers sweeps. */
 export type GuardInput = 'none' | 'high' | 'low';
@@ -71,6 +77,39 @@ export interface Fighter {
   blockstunLeft: number;
   /** Slot of the fighter this one is locked on, or -1. */
   targetLockedSlot: number;
+
+  /**
+   * Chain this fighter is currently branched into, or ''. Set when a hit-confirm link connects:
+   * it is the ticket that lets the next link be pressed in, and it is cleared as soon as the
+   * window lapses or a different move is started.
+   */
+  chainId: string;
+  /**
+   * The one move this fighter may cancel into next, or ''.
+   *
+   * Deliberately a single move rather than "any link of the chain": a confirm has to buy the
+   * *next* hit. Letting a player jump straight to a five-hit string's finisher would let them skip
+   * four links by mashing, which is the opposite of what a confirm is for.
+   */
+  branchTarget: string;
+  /** Ticks left in the hit-confirm cancel window. 0 means no branch is available. */
+  chainWindow: number;
+  /** Ticks left of the post-whiff lockout, during which no new chain may be started. */
+  whiffLockout: number;
+  /** Ticks left before this fighter may dodge again. */
+  dodgeCooldown: number;
+  /** Ticks the current charge hold has accumulated. */
+  chargeFrames: number;
+  /**
+   * True once the charge button has been released. The release is buffered until the first windup
+   * completes, which is what makes the windup a commitment instead of a suggestion.
+   */
+  chargeRelease: boolean;
+  /**
+   * Charge tier 1..5 of the last charge reached, 0 when no charged move has been thrown this
+   * match. Drives the Gigaton's damage tier and is what the HUD reads.
+   */
+  chargeLevel: number;
 }
 
 /**
@@ -103,6 +142,14 @@ export const STATE_HASH_FIELDS: readonly (keyof Fighter)[] = Object.freeze([
   'stunRemaining',
   'blockstunLeft',
   'targetLockedSlot',
+  'chainId',
+  'branchTarget',
+  'chainWindow',
+  'whiffLockout',
+  'dodgeCooldown',
+  'chargeFrames',
+  'chargeRelease',
+  'chargeLevel',
 ]);
 
 /**
@@ -135,6 +182,10 @@ export function createFighter(
   z: number,
   facing: 1 | -1 = 1,
 ): Fighter {
+  // An unknown archetype id (the frame-measurement rig uses `'frame_probe'`, the harnesses use
+  // `'probe'`) must still produce a legal fighter, so every archetype field falls back to the
+  // Phase 0 default rather than throwing.
+  const archetype = getArchetype(archetypeId);
   return {
     slot,
     archetypeId,
@@ -149,8 +200,8 @@ export function createFighter(
     stateFrame: 0,
     currentMove: null,
     movePhaseFrame: 0,
-    health: DEFAULT_MAX_HEALTH,
-    maxHealth: DEFAULT_MAX_HEALTH,
+    health: archetype?.maxHealth ?? DEFAULT_MAX_HEALTH,
+    maxHealth: archetype?.maxHealth ?? DEFAULT_MAX_HEALTH,
     spaMeter: 0,
     spaMax: DEFAULT_SPA_MAX,
     eliminated: false,
@@ -161,6 +212,14 @@ export function createFighter(
     stunRemaining: 0,
     blockstunLeft: 0,
     targetLockedSlot: -1,
+    chainId: '',
+    branchTarget: '',
+    chainWindow: 0,
+    whiffLockout: 0,
+    dodgeCooldown: 0,
+    chargeFrames: 0,
+    chargeRelease: false,
+    chargeLevel: 0,
   };
 }
 
@@ -177,10 +236,11 @@ export function setState(fighter: Fighter, state: FighterState): void {
 
 /**
  * True when this fighter may start a new move this tick.
- * Phase 0 has no cancels: `recovery`, `startup`, `active` and every stun state all lock
- * input out until the state machine returns the fighter to `idle`/`walk`. That is what makes
- * the declared recovery frames in `MOVESET` measurable, and it is where cancel windows get
- * added later (a cancel would extend this predicate, never the frame contract).
+ *
+ * Phase 1 opens exactly two windows into an existing move, and both are cancellations *out of*
+ * a move that has already connected or *into* the next link of a string — never an arbitrary
+ * cancel. `startup`, `active` and every stun state still lock input out, which is what makes the
+ * declared recovery frames measurable.
  */
 export function isActionable(fighter: Fighter): boolean {
   if (fighter.eliminated || fighter.hitstop > 0) {

@@ -34,7 +34,9 @@ const sources = await buildSources();
 const {
   MatchRunner,
   MOVESET,
+  STANCES,
   STATE_HASH_FIELDS,
+  CHAIN_PRESS,
   DT,
   TICK_MS,
   MAX_CATCHUP_TICKS,
@@ -48,22 +50,34 @@ const REFRESH_RATES = [30, 60, 144, 240];
 const SIM_SECONDS = 3;
 
 /**
+ * Four fighters close enough to actually touch. The default roster stands in the four corners of
+ * the arena, which is right for the wall test and useless for a determinism scenario — nothing
+ * ever meets, so the check would pass on a simulation that never resolved a single hit. Shared
+ * with the feel report so the two can never drift apart.
+ */
+const { engagementSpawns } = await import('../tools/measure-frames.mjs');
+
+/**
  * Deterministic input script. Derived only from (slot, tick) so any two runs asking for the
  * same tick get the same inputs — the scenario itself carries no hidden state.
  */
 function scenarioFor(runner, tick) {
   return runner.fighters.map((fighter) => {
     const phase = (tick + fighter.slot * 13) % 48;
+    // Chain presses resolve against a stance, so rotating the stance walks a fighter through all
+    // four directional branches of its archetype over the run.
+    const stance = STANCES[phase % 4];
     let attack = null;
-    if (phase === 0) attack = 'jab';
+    if (phase === 0 || phase === 20) attack = CHAIN_PRESS;
     else if (phase === 12) attack = 'straight';
-    else if (phase === 24) attack = 'low_sweep';
+    else if (phase === 30) attack = 'low_sweep';
     else if (phase === 36) attack = 'grab_high';
     const moveX = phase % 3 === 0 ? 1 : phase % 3 === 1 ? -1 : 0;
     const moveZ = phase % 5 === 0 ? 1 : 0;
     const guard = phase % 6 === 4 ? 'high' : phase % 7 === 5 ? 'low' : 'none';
+    const dodge = phase % 9 === 2 ? 'high' : phase % 9 === 5 ? 'low' : 'none';
     void fighter;
-    return { moveX, moveZ, attack, guard };
+    return idleInput({ moveX, moveZ, attack, guard, stance, dodge });
   });
 }
 
@@ -95,14 +109,14 @@ function tickUntilHit(runner, inputs, maxTicks = 60) {
 test('headless: no browser globals are present while the sim runs', () => {
   assert.equal(typeof globalThis.window, 'undefined');
   assert.equal(typeof globalThis.document, 'undefined');
-  const runner = new MatchRunner();
+  const runner = new MatchRunner(engagementSpawns());
   runner.fixedUpdate(DT, scenarioFor(runner, 0));
   assert.equal(runner.tick, 1);
 });
 
 test('identical inputs produce identical state hashes and event streams over 600 ticks', () => {
-  const a = new MatchRunner();
-  const b = new MatchRunner();
+  const a = new MatchRunner(engagementSpawns());
+  const b = new MatchRunner(engagementSpawns());
   const eventsA = [];
   const eventsB = [];
 
@@ -123,7 +137,7 @@ test('identical inputs produce identical state hashes and event streams over 600
 });
 
 test('fixedUpdate rejects any timestep that is not 1/60', () => {
-  const runner = new MatchRunner();
+  const runner = new MatchRunner(engagementSpawns());
   assert.throws(() => runner.fixedUpdate(1 / 30), RangeError);
   assert.throws(() => runner.fixedUpdate(1 / 120), RangeError);
   assert.throws(() => runner.fixedUpdate(Number.NaN), RangeError);
@@ -156,7 +170,7 @@ test(`display refresh rate (${REFRESH_RATES.join('/')}Hz) does not change simula
   const commonTicks = Math.min(...totals);
   const hashes = [];
   for (const frameHz of REFRESH_RATES) {
-    const result = await runScriptedMatchAtRate(sim, frameHz, commonTicks, scenarioFor);
+    const result = await runScriptedMatchAtRate(sim, frameHz, commonTicks, scenarioFor, engagementSpawns());
     assert.equal(result.ticks, commonTicks, `${frameHz}Hz did not land on ${commonTicks} ticks`);
     hashes.push({ frameHz, hash: result.hash });
   }
@@ -176,7 +190,7 @@ test('a long stall is clamped instead of replayed in a burst', () => {
   assert.equal(accumulator.pendingMs < TICK_MS, true, 'accumulator banked a backlog');
 
   // And a clamped loop still advances the sim by exactly that many ticks.
-  const runner = new MatchRunner();
+  const runner = new MatchRunner(engagementSpawns());
   const loop = loopModule.startFixedLoop({
     fixedUpdate: () => runner.fixedUpdate(DT, scenarioFor(runner, runner.tick)),
     host: { now: () => 0, schedule: () => 0, cancel: () => {} },
@@ -217,6 +231,14 @@ test('stateHash covers every field that can influence a future tick', () => {
     stunRemaining: (f) => f.stunRemaining + 8,
     blockstunLeft: (f) => f.blockstunLeft + 6,
     targetLockedSlot: (f) => (f.targetLockedSlot + 2) % 4,
+    chainId: (f) => (f.chainId === '' ? 'jab' : ''),
+    branchTarget: (f) => (f.branchTarget === '' ? 'jab' : ''),
+    chainWindow: (f) => f.chainWindow + 4,
+    whiffLockout: (f) => f.whiffLockout + 3,
+    dodgeCooldown: (f) => f.dodgeCooldown + 6,
+    chargeFrames: (f) => f.chargeFrames + 5,
+    chargeRelease: (f) => !f.chargeRelease,
+    chargeLevel: (f) => (f.chargeLevel + 1) % 6,
   };
 
   assert.deepEqual(
@@ -225,14 +247,14 @@ test('stateHash covers every field that can influence a future tick', () => {
     'STATE_HASH_FIELDS and the mutation coverage list have drifted apart',
   );
 
-  const baseline = new MatchRunner();
+  const baseline = new MatchRunner(engagementSpawns());
   for (let tick = 0; tick < 120; tick += 1) {
     baseline.fixedUpdate(DT, scenarioFor(baseline, tick));
   }
   const baselineHash = baseline.stateHash();
 
   for (const field of STATE_HASH_FIELDS) {
-    const mutated = new MatchRunner();
+    const mutated = new MatchRunner(engagementSpawns());
     for (let tick = 0; tick < 120; tick += 1) {
       mutated.fixedUpdate(DT, scenarioFor(mutated, tick));
     }
@@ -249,7 +271,7 @@ test('stateHash covers every field that can influence a future tick', () => {
 });
 
 test('save/restore round-trips exactly (AGENTS.md §3.3)', () => {
-  const runner = new MatchRunner();
+  const runner = new MatchRunner(engagementSpawns());
   for (let tick = 0; tick < 240; tick += 1) {
     runner.fixedUpdate(DT, scenarioFor(runner, tick));
   }
@@ -270,7 +292,7 @@ test('save/restore round-trips exactly (AGENTS.md §3.3)', () => {
 });
 
 test('a restored snapshot replays forward to the same hash', () => {
-  const original = new MatchRunner();
+  const original = new MatchRunner(engagementSpawns());
   for (let tick = 0; tick < 90; tick += 1) {
     original.fixedUpdate(DT, scenarioFor(original, tick));
   }
@@ -316,9 +338,15 @@ test('the simulation bundle has no DOM, WebGL, wall-clock or randomness dependen
   // Sanity: the scan is looking at the real bundle, not an empty string.
   assert.ok(sources.sim.includes('MatchRunner'), 'sim bundle looks empty');
 
+  // `window` and `document` are matched only as *used*, i.e. member access or a `typeof` probe.
+  // A bare word-boundary match would also fire on an ordinary comment that happens to say
+  // "dodge window", which makes the gate fail on prose instead of on code — and a gate that cries
+  // wolf gets deleted. Everything that actually touches a DOM global still matches.
   const forbidden = [
-    /\bdocument\b/,
-    /\bwindow\b/,
+    /\bdocument\s*[.[]/,
+    /\btypeof\s+document\b/,
+    /\bwindow\s*[.[]/,
+    /\btypeof\s+window\b/,
     /\bAudioContext\b/,
     /\bWebGL\w*\b/,
     /\bTHREE\b/,
@@ -452,7 +480,7 @@ test('one hitbox connects at most once per move', () => {
 });
 
 test('arena walls clamp position and emit wall impacts', () => {
-  const runner = new MatchRunner();
+  const runner = new MatchRunner(engagementSpawns());
   const events = runner.step(600, idleInput({ moveX: 1, moveZ: 1 }));
   assert.ok(events.some((event) => event.type === 'wallImpact'), 'walking into the wall must report it');
   for (const fighter of runner.fighters) {

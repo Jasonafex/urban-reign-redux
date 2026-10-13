@@ -3,8 +3,9 @@
  *
  * AGENTS.md §3.1: the sim emits events and the presentation layer consumes them. Events are
  * plain frozen data — no DOM handles, no Three.js objects, nothing a Node runner cannot build.
- * `DodgeEvent` arrives with the high/low dodge work in a later phase; the union is the
- * contract the render/audio layers code against, so it is declared in full now.
+ * `DodgeEvent` landed with the Phase 1 high/low dodge and reversal work and reports which of the
+ * two happened, so a renderer can play a slip and a counter differently without re-deriving any
+ * timing of its own.
  */
 
 export interface HitEvent {
@@ -48,6 +49,17 @@ export interface DodgeEvent {
   readonly slot: number;
   readonly direction: 'high' | 'low';
   readonly evadedMoveId: string | null;
+  /**
+   * How the dodge resolved.
+   *
+   *   - `slip`      the incoming strike missed entirely; the defender is untouched.
+   *   - `reversal`  the impact landed in the frame-perfect window at the front of the slip
+   *                 window, so the attacker was countered instead. `counterMoveId` names the
+   *                 archetype's reversal.
+   */
+  readonly outcome: 'slip' | 'reversal';
+  /** The reversal executed, when `outcome` is `reversal`; null otherwise. */
+  readonly counterMoveId: string | null;
 }
 
 export type SimEvent = HitEvent | WallImpactEvent | SpaEvent | DodgeEvent;

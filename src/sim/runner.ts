@@ -12,26 +12,52 @@
  *
  * Tick order (fixed, and asserted by the determinism suite):
  *   1. consume inputs (a started move consumes its own tick)
- *   2. freeze/hitstop, advance state machines, integrate motion + arena clamp
- *   3. resolve live hitboxes, apply damage, stun, gauge and SPA events
+ *   2. freeze/hitstop, expire timers, advance state machines, integrate motion + arena clamp
+ *   3. resolve live hitboxes: invulnerability, aerial reach, juggle limit, high/low dodge and
+ *      reversal, blocking, then damage, stun, gauge and SPA events
+ *
+ * Phase 1 adds five systems on top of the Phase 0 tick: directional chain branching
+ * (`handleAttack`/`completeMove`), the high/low dodge with its frame-perfect reversal window
+ * (`dodgeWindow`/`resolveDodge`), the five-level charge hold (`releaseCharge`), the juggle cap and
+ * get-up roll (`JUGGLE_LIMIT`, `isInvulnerable`), and the single-target/crowd-clear split
+ * (`hitsAll`).
  */
 
 import {
   AIRBORNE_Y,
+  AIR_FRICTION_DIVISOR,
   ARENA_HALF_EXTENT,
+  CHAIN_CANCEL_WINDOW,
+  DODGE_COOLDOWN_FRAMES,
+  DODGE_RECOVERY_FRAMES,
+  DODGE_REVERSAL_FRAMES,
+  DODGE_SLIP_FRAMES,
+  DODGE_SLIP_START,
+  DODGE_TOTAL_FRAMES,
   DT,
   FP_SCALE,
   GETUP_FRAMES,
   GRAVITY_PER_TICK,
+  JUGGLE_LIMIT,
   KNOCKDOWN_FRAMES,
   LAUNCH_VELOCITY,
   SPA_ON_HIT,
   SPA_ON_LAND,
   TICK_HZ,
   WALK_SPEED,
+  WHIFF_LOCKOUT_FRAMES,
 } from '../config';
-import { getMove, totalFrames, type MoveDef } from '../combat/moveset';
-import type { SimEvent } from './events';
+import {
+  chargeProfileOf,
+  chainOfMoveId,
+  defaultChainMoveId,
+  getArchetype,
+  isStance,
+  reversalOf,
+  type ChargeProfile,
+} from '../combat/archetypes';
+import { getMove, totalFrames, type MoveDef, type MoveStance } from '../combat/moveset';
+import type { DodgeEvent, SimEvent } from './events';
 import {
   STATE_HASH_FIELDS,
   cloneFighter,
@@ -47,17 +73,36 @@ export interface FrameInput {
   /** Movement intent, each component in -1..1; snapped to the eight-way table. */
   moveX: number;
   moveZ: number;
-  /** Attack to attempt this tick, or null. */
+  /**
+   * Attack to attempt this tick, or null. Three accepted forms:
+   *   - a move id (`'jin_kazama_style_5_hit_combo_2'`),
+   *   - a stance (`'neutral' | 'up' | 'down' | 'side'`), which picks that stance's default chain,
+   *   - `CHAIN_PRESS`, which picks the chain for `input.stance`.
+   */
   attack: string | null;
+  /** Stance that `CHAIN_PRESS` resolves against; also reported to the HUD. */
+  stance: MoveStance;
   /** Guard held this tick. 'high' blocks mid/high strikes, 'low' blocks sweeps. */
   guard: GuardInput;
+  /** High/low dodge requested this tick. */
+  dodge: DodgeInput;
 }
+
+export type DodgeInput = 'none' | 'high' | 'low';
+
+/**
+ * The sentinel `attack` value meaning "start the chain for my current stance". Exported so an
+ * input layer never has to hard-code the string.
+ */
+export const CHAIN_PRESS = 'chain';
 
 export const NEUTRAL_INPUT: FrameInput = Object.freeze({
   moveX: 0,
   moveZ: 0,
   attack: null,
+  stance: 'neutral',
   guard: 'none',
+  dodge: 'none',
 });
 
 export function idleInput(overrides: Partial<FrameInput> = {}): FrameInput {
@@ -77,14 +122,20 @@ export interface FighterSpawn {
   readonly facing?: 1 | -1;
 }
 
-/** Deterministic default roster for Phase 0: four combatants, Free-For-All. */
+/**
+ * Deterministic default roster: the four Trial 13 archetypes, Free-For-All.
+ *
+ * Coordinates are **world units** — the `MatchRunner` constructor scales them by `FP_SCALE`. The
+ * Phase 0 version pre-multiplied here as well, which spawned everyone 7000+ units out and had the
+ * wall clamp haul them to the corners on tick 1.
+ */
 export function defaultSpawns(): FighterSpawn[] {
   const half = ARENA_HALF_EXTENT - 2;
   return [
-    { slot: 0, archetypeId: 'street_brawler', x: -half * FP_SCALE, z: -half * FP_SCALE, facing: 1 },
-    { slot: 1, archetypeId: 'parkour_thug', x: half * FP_SCALE, z: -half * FP_SCALE, facing: -1 },
-    { slot: 2, archetypeId: 'pipe_enforcer', x: -half * FP_SCALE, z: half * FP_SCALE, facing: 1 },
-    { slot: 3, archetypeId: 'blade_runner', x: half * FP_SCALE, z: half * FP_SCALE, facing: -1 },
+    { slot: 0, archetypeId: 'brad_hawk', x: -half, z: -half, facing: 1 },
+    { slot: 1, archetypeId: 'jack5', x: half, z: -half, facing: -1 },
+    { slot: 2, archetypeId: 'jin_kazama', x: -half, z: half, facing: 1 },
+    { slot: 3, archetypeId: 'bryan_fury', x: half, z: half, facing: -1 },
   ];
 }
 
@@ -95,6 +146,9 @@ function clampInt(value: number, min: number, max: number): number {
   if (value > max) return max;
   return value;
 }
+
+/** Which part of a dodge window the current tick falls in, if any. */
+type DodgeWindow = 'slip' | 'reversal';
 
 export class MatchRunner {
   readonly fighters: Fighter[];
@@ -149,7 +203,8 @@ export class MatchRunner {
         fighter.hitstop -= 1;
         continue;
       }
-      this.advanceState(fighter);
+      this.expireTimers(fighter);
+      this.advanceState(fighter, events);
       this.integrateMotion(fighter, events);
     }
 
@@ -170,8 +225,8 @@ export class MatchRunner {
         if (defender === attacker) {
           continue;
         }
-        if (this.resolveHit(attacker, defender, def, events)) {
-          break; // one contact per active frame in Phase 0
+        if (this.resolveHit(attacker, defender, def, events) && !def.hitsAll) {
+          break; // one contact per active frame, unless this is a 360 crowd-clearer
         }
       }
     }
@@ -222,25 +277,99 @@ export class MatchRunner {
     return fnv1a(parts.join('\n'));
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Input
+  // -------------------------------------------------------------------------------------------
+
   private applyInputs(inputs: readonly FrameInput[] | undefined, events: SimEvent[]): void {
     for (const fighter of this.fighters) {
+      const input = inputs?.[fighter.slot] ?? NEUTRAL_INPUT;
+
+      // A charge hold owns its fighter outright: the only way out is releasing (or being forced
+      // out by `maxHoldFrames`). Movement, dodging and every other press are ignored.
+      if (fighter.state === 'charging') {
+        this.updateCharge(fighter, input, events);
+        continue;
+      }
+      // A dodge is committed for its whole duration; there is no cancel out of the commitment.
+      if (fighter.state === 'dodge_high' || fighter.state === 'dodge_low') {
+        continue;
+      }
       if (!isActionable(fighter)) {
         continue;
       }
-      const input = inputs?.[fighter.slot] ?? NEUTRAL_INPUT;
-      if (input.attack !== null && input.attack !== undefined) {
-        this.beginMove(fighter, input.attack, events);
+
+      // Compared by value rather than `!== 'none'`, so an input object built by an older caller
+      // (or a partial literal) that omits `dodge` is treated as "no dodge" instead of comparing
+      // `undefined` and quietly committing every fighter to a dodge.
+      if ((input.dodge === 'high' || input.dodge === 'low') && this.beginDodge(fighter, input.dodge)) {
+        continue;
+      }
+      if (input.attack !== null && input.attack !== undefined && this.handleAttack(fighter, input, events)) {
         continue;
       }
       this.applyMovementIntent(fighter, input);
     }
   }
 
-  private beginMove(fighter: Fighter, moveId: string, events: SimEvent[]): boolean {
+  /**
+   * Resolve one attack press into a started move. Returns true when the press was consumed.
+   *
+   * Three ways in, checked in this order:
+   *   1. the archetype's charge entry sentinel — enters the hold instead of a move;
+   *   2. a branch into the chain this fighter is currently confirmed into;
+   *   3. a fresh chain start (a stance press, or any move id), subject to the whiff lockout.
+   */
+  private handleAttack(fighter: Fighter, input: FrameInput, events: SimEvent[]): boolean {
+    const requested = input.attack;
+    if (requested === null || requested === undefined) {
+      return false;
+    }
+
+    const profile = chargeProfileOf(fighter.archetypeId);
+    if (profile !== null && requested === profile.chainEntry) {
+      return this.enterCharge(fighter, profile);
+    }
+
+    let moveId: string;
+    if (requested === CHAIN_PRESS) {
+      const opener = defaultChainMoveId(fighter.archetypeId, input.stance ?? 'neutral');
+      if (opener === undefined) {
+        return false;
+      }
+      moveId = opener;
+    } else if (isStance(requested)) {
+      const opener = defaultChainMoveId(fighter.archetypeId, requested);
+      if (opener === undefined) {
+        return false;
+      }
+      moveId = opener;
+    } else {
+      moveId = requested;
+    }
+
     const def = getMove(moveId);
     if (def === undefined) {
       throw new RangeError(`Unknown move id requested: ${moveId}`);
     }
+
+    // Branching means: the cancel window is open *and* this press is the exact link that window
+    // was opened for. Requiring the single next link — not merely "some link of the same chain" —
+    // is what stops a confirm from being skipped by mashing straight to a five-hit finisher.
+    const branching = fighter.chainWindow > 0 && fighter.branchTarget === def.id;
+
+    if (!branching) {
+      // Whiff lockout punishes the string, not the character: a whiffed chain opener costs a few
+      // frames of string access, while a jab or a reversal is never locked out.
+      if (fighter.whiffLockout > 0 && chainOfMoveId(def.id) !== undefined) {
+        return false;
+      }
+    }
+
+    return this.beginMove(fighter, def, events, branching);
+  }
+
+  private beginMove(fighter: Fighter, def: MoveDef, events: SimEvent[], branching: boolean): boolean {
     if (def.spaCost > 0) {
       if (fighter.spaMeter < def.spaCost) {
         return false; // not enough gauge: the input is swallowed, no move starts
@@ -259,11 +388,18 @@ export class MatchRunner {
     fighter.currentMove = def.id;
     fighter.movePhaseFrame = 0;
     fighter.hitConsumed = false;
+    // Branching consumes the ticket it was opened for; a fresh start opens a new one and drops any
+    // window that was still open, because choosing a different string abandons this one.
+    fighter.chainId = branching ? fighter.chainId : chainOfMoveId(def.id) ?? '';
+    fighter.branchTarget = '';
+    fighter.chainWindow = 0;
     setState(fighter, 'startup');
     return true;
   }
 
   private applyMovementIntent(fighter: Fighter, input: FrameInput): void {
+    const archetype = getArchetype(fighter.archetypeId);
+    const speed = archetype?.walkSpeed ?? WALK_SPEED;
     const [dirX, dirZ] = directionFor(input.moveX, input.moveZ);
     if (dirX === 0 && dirZ === 0) {
       fighter.vx = 0;
@@ -273,8 +409,8 @@ export class MatchRunner {
       }
       return;
     }
-    fighter.vx = Math.trunc((dirX * WALK_SPEED) / FP_SCALE);
-    fighter.vz = Math.trunc((dirZ * WALK_SPEED) / FP_SCALE);
+    fighter.vx = Math.trunc((dirX * speed) / FP_SCALE);
+    fighter.vz = Math.trunc((dirZ * speed) / FP_SCALE);
     if (input.moveX > 0) {
       fighter.facing = 1;
     } else if (input.moveX < 0) {
@@ -287,7 +423,160 @@ export class MatchRunner {
     }
   }
 
-  private advanceState(fighter: Fighter): void {
+  // -------------------------------------------------------------------------------------------
+  // Charge (Jack-5's five-level Gigaton)
+  // -------------------------------------------------------------------------------------------
+
+  private enterCharge(fighter: Fighter, profile: ChargeProfile): boolean {
+    if (fighter.spaMeter < profile.minGauge) {
+      return false;
+    }
+    setState(fighter, 'charging');
+    fighter.currentMove = null;
+    fighter.movePhaseFrame = 0;
+    fighter.chainId = '';
+    fighter.branchTarget = '';
+    fighter.chainWindow = 0;
+    fighter.chargeFrames = 0;
+    fighter.chargeLevel = 0;
+    // Must be cleared here, not only in `releaseCharge`: a charge interrupted by a hit leaves the
+    // fighter in `hitstun` with `chargeRelease` still set, and the next hold would fire the instant
+    // it reached the first windup — collapsing all five Gigaton tiers into a level-1 release.
+    fighter.chargeRelease = false;
+    return true;
+  }
+
+  private updateCharge(fighter: Fighter, input: FrameInput, events: SimEvent[]): void {
+    const profile = chargeProfileOf(fighter.archetypeId);
+    if (profile === null) {
+      setState(fighter, 'idle');
+      return;
+    }
+    if (input.attack === profile.chainEntry) {
+      // Still held: nothing to do. `advanceState` owns the hold counter and the forced release.
+      return;
+    }
+    // Released. Below the first windup the release is buffered, so the windup is a commitment the
+    // player cannot back out of.
+    if (fighter.chargeFrames >= profile.firstWindupFrames) {
+      this.releaseCharge(fighter, profile, events);
+    } else {
+      fighter.chargeRelease = true;
+    }
+  }
+
+  /**
+   * Which Gigaton tier a hold of `frames` earns: `gigaton_charge.py`'s own first-windup and loop
+   * lengths (28 frames, then 24 per extra level), capped at `maxLevel`. Integer-only.
+   */
+  private chargeLevelFor(profile: ChargeProfile, frames: number): number {
+    if (frames <= profile.firstWindupFrames) {
+      return 1;
+    }
+    const levels = 1 + Math.trunc((frames - profile.firstWindupFrames) / profile.loopFrames);
+    return clampInt(levels, 1, profile.maxLevel);
+  }
+
+  private releaseCharge(fighter: Fighter, profile: ChargeProfile, events: SimEvent[]): void {
+    const level = this.chargeLevelFor(profile, fighter.chargeFrames);
+    fighter.chargeLevel = level;
+    const releaseId = profile.releases[level - 1];
+    fighter.chargeRelease = false;
+    if (releaseId === undefined) {
+      setState(fighter, 'idle');
+      return;
+    }
+    const def = getMove(releaseId);
+    if (def === undefined) {
+      setState(fighter, 'idle');
+      return;
+    }
+    // `beginMove` refuses a release the fighter cannot pay for. A charge is only *entered* with
+    // `minGauge`, and only level 1 costs anything, so a legal hold always has a legal release;
+    // the guard is here so a table edit can never strand a fighter in `charging`.
+    if (!this.beginMove(fighter, def, events, false)) {
+      setState(fighter, 'idle');
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Dodge and reversal
+  // -------------------------------------------------------------------------------------------
+
+  private beginDodge(fighter: Fighter, direction: 'high' | 'low'): boolean {
+    if (fighter.dodgeCooldown > 0) {
+      return false;
+    }
+    setState(fighter, direction === 'high' ? 'dodge_high' : 'dodge_low');
+    // The cooldown covers the dodge itself so it starts ticking the moment the fighter recovers,
+    // instead of being partly consumed by the dodge it is gating.
+    fighter.dodgeCooldown = DODGE_TOTAL_FRAMES + DODGE_RECOVERY_FRAMES + DODGE_COOLDOWN_FRAMES;
+    fighter.currentMove = null;
+    fighter.movePhaseFrame = 0;
+    // Dodging out of a string is a real choice: it drops the branch ticket.
+    fighter.chainId = '';
+    fighter.branchTarget = '';
+    fighter.chainWindow = 0;
+    return true;
+  }
+
+  /**
+   * Which dodge window, if any, the current tick is in. `stateFrame` has already been advanced
+   * this tick, so it counts 1 on the accepting tick: the commitment occupies frame 1 and the
+   * slip window opens on frame `DODGE_SLIP_START`.
+   */
+  private dodgeWindow(fighter: Fighter): DodgeWindow | null {
+    if (fighter.state !== 'dodge_high' && fighter.state !== 'dodge_low') {
+      return null;
+    }
+    const frame = fighter.stateFrame;
+    if (frame < DODGE_SLIP_START || frame >= DODGE_SLIP_START + DODGE_SLIP_FRAMES) {
+      return null;
+    }
+    // The reversal window is the *front* of the slip window, which is what "frame-perfect"
+    // means here: react early and you punish, react late and you merely survive.
+    if (frame < DODGE_SLIP_START + DODGE_REVERSAL_FRAMES) {
+      return 'reversal';
+    }
+    return 'slip';
+  }
+
+  /**
+   * A dodge only answers the guard level it was built for. A high dodge slips high and mid
+   * strikes; a low dodge hops sweeps. Throws and unblockables are read by neither, so a
+   * whiff-punished reversal still lands on someone who dodged the wrong way.
+   */
+  private dodgeAnswers(defender: Fighter, def: MoveDef): boolean {
+    if (def.guard === 'throw' || def.guard === 'unblockable') {
+      return false;
+    }
+    return defender.state === 'dodge_high'
+      ? def.guard === 'high' || def.guard === 'mid'
+      : def.guard === 'low';
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Timers and state machines
+  // -------------------------------------------------------------------------------------------
+
+  private expireTimers(fighter: Fighter): void {
+    if (fighter.whiffLockout > 0) {
+      fighter.whiffLockout -= 1;
+    }
+    if (fighter.dodgeCooldown > 0) {
+      fighter.dodgeCooldown -= 1;
+    }
+    if (fighter.chainWindow > 0) {
+      fighter.chainWindow -= 1;
+      if (fighter.chainWindow === 0) {
+        // The window lapsed, so the string is over whether or not it was finished.
+        fighter.chainId = '';
+        fighter.branchTarget = '';
+      }
+    }
+  }
+
+  private advanceState(fighter: Fighter, events: SimEvent[]): void {
     switch (fighter.state) {
       case 'startup':
       case 'active':
@@ -301,9 +590,7 @@ export class MatchRunner {
         const phase = fighter.movePhaseFrame + 1;
         const total = totalFrames(def);
         if (phase >= total) {
-          fighter.currentMove = null;
-          fighter.movePhaseFrame = 0;
-          setState(fighter, 'idle');
+          this.completeMove(fighter, def, events);
           return;
         }
         fighter.movePhaseFrame = phase;
@@ -357,6 +644,32 @@ export class MatchRunner {
         }
         return;
       }
+      case 'dodge_high':
+      case 'dodge_low': {
+        fighter.stateFrame += 1;
+        if (fighter.stateFrame >= DODGE_TOTAL_FRAMES + DODGE_RECOVERY_FRAMES) {
+          setState(fighter, 'idle');
+        }
+        return;
+      }
+      case 'charging': {
+        fighter.stateFrame += 1;
+        fighter.chargeFrames += 1;
+        const profile = chargeProfileOf(fighter.archetypeId);
+        if (profile === null) {
+          setState(fighter, 'idle');
+          return;
+        }
+        if (fighter.chargeRelease && fighter.chargeFrames >= profile.firstWindupFrames) {
+          this.releaseCharge(fighter, profile, events);
+          return;
+        }
+        if (fighter.chargeFrames >= profile.maxHoldFrames) {
+          // Held too long: fire at the top tier next tick rather than stalling forever.
+          fighter.chargeRelease = true;
+        }
+        return;
+      }
       case 'idle':
       case 'walk': {
         fighter.stateFrame += 1;
@@ -369,9 +682,59 @@ export class MatchRunner {
     }
   }
 
+  /**
+   * Hand a finished move on to whatever comes next.
+   *
+   *   - an automatic link always runs next, connected or not — that is the spec.py rule that one
+   *     button throws one animation's worth of contacts, and it is why a whiffed Piston Gun still
+   *     gets five barrels of bullets out;
+   *   - a hit-confirm link opens a cancel window only if it connected, so whiffing ends the
+   *     string and starts the lockout;
+   *   - anything else closes the chain.
+   */
+  private completeMove(fighter: Fighter, def: MoveDef, events: SimEvent[]): void {
+    const connected = fighter.hitConsumed;
+    const hasNext = def.chainNext !== null && def.chainNextMode !== 'none';
+
+    if (hasNext && def.chainNextMode === 'automatic') {
+      const next = getMove(def.chainNext);
+      // `beginMove` can refuse (an automatic link that costs gauge the fighter no longer has).
+      // Falling through to end the move matters: leaving the state machine parked one tick short of
+      // completion would re-enter this function forever and hard-lock the fighter.
+      if (next !== undefined && this.beginMove(fighter, next, events, true)) {
+        return;
+      }
+    }
+
+    fighter.currentMove = null;
+    fighter.movePhaseFrame = 0;
+
+    if (hasNext && connected && def.chainNext !== null) {
+      fighter.chainWindow = CHAIN_CANCEL_WINDOW;
+      fighter.branchTarget = def.chainNext;
+    } else {
+      if (hasNext) {
+        // Whiffed a branchable link: the string is gone and string access is briefly locked.
+        fighter.whiffLockout = WHIFF_LOCKOUT_FRAMES;
+      }
+      fighter.chainId = '';
+      fighter.branchTarget = '';
+      fighter.chainWindow = 0;
+    }
+    setState(fighter, 'idle');
+  }
+
   private integrateMotion(fighter: Fighter, events: SimEvent[]): void {
     if (fighter.state === 'launched' || fighter.y > 0) {
       fighter.vy -= GRAVITY_PER_TICK;
+      // Air friction. A launched fighter is carried away from the attacker, not launched into
+      // orbit: without decay the launcher's knockback alone walks the victim several world units
+      // over a ~50 tick arc, which puts them outside every juggle tool's reach before the second
+      // hit and makes `JUGGLE_LIMIT` unreachable in practice. Integer decay, so it stays exact.
+      if (fighter.state === 'launched') {
+        fighter.vx -= Math.trunc(fighter.vx / AIR_FRICTION_DIVISOR);
+        fighter.vz -= Math.trunc(fighter.vz / AIR_FRICTION_DIVISOR);
+      }
       fighter.x += fighter.vx;
       fighter.z += fighter.vz;
       fighter.y += fighter.vy;
@@ -382,6 +745,9 @@ export class MatchRunner {
         fighter.vz = Math.trunc(fighter.vz / 2);
         if (fighter.state === 'launched') {
           setState(fighter, 'down');
+          // Landing ends the juggle outright: the counter is "aerial hits since leaving the
+          // ground", not a life total.
+          fighter.juggleCount = 0;
         }
       }
     } else if (fighter.state !== 'idle') {
@@ -396,7 +762,7 @@ export class MatchRunner {
     } else if (fighter.x < -ARENA_LIMIT) {
       events.push({ type: 'wallImpact', tick: this.tick, slot: fighter.slot, axis: 'x', speed: Math.abs(fighter.vx) });
       fighter.x = -ARENA_LIMIT;
-      fighter.vx = Math.trunc(Math.abs(fighter.vx) / 2);
+      fighter.vx = -Math.trunc(Math.abs(fighter.vx) / 2);
     }
 
     if (fighter.z > ARENA_LIMIT) {
@@ -406,17 +772,42 @@ export class MatchRunner {
     } else if (fighter.z < -ARENA_LIMIT) {
       events.push({ type: 'wallImpact', tick: this.tick, slot: fighter.slot, axis: 'z', speed: Math.abs(fighter.vz) });
       fighter.z = -ARENA_LIMIT;
-      fighter.vz = Math.trunc(Math.abs(fighter.vz) / 2);
+      fighter.vz = -Math.trunc(Math.abs(fighter.vz) / 2);
     }
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Hit resolution
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Frames in which a fighter simply cannot be hit: the get-up roll.
+   *
+   * A dodge is deliberately *not* handled here even though it is also invulnerable, because a
+   * dodge has to be resolved after the reach checks — a dodge that was never in range did not
+   * dodge anything, and must not emit a `DodgeEvent` for it.
+   */
+  private isInvulnerable(fighter: Fighter): boolean {
+    // The get-up roll: a knockdown is never a free setup.
+    return fighter.eliminated || fighter.state === 'getup';
+  }
+
   private resolveHit(attacker: Fighter, defender: Fighter, def: MoveDef, events: SimEvent[]): boolean {
-    if (defender.eliminated) {
+    if (this.isInvulnerable(defender)) {
       return false;
     }
-    if (defender.y > AIRBORNE_Y) {
-      return false; // airborne targets are safe from grounded hitboxes in Phase 0
+
+    // Aerial strikes only reach airborne targets and grounded strikes only reach grounded ones.
+    // That split is what keeps juggling a deliberate, juggle-capped tool rather than something any
+    // fast poke can do by accident.
+    const airborne = defender.state === 'launched' || defender.y > AIRBORNE_Y;
+    if (def.airOnly !== airborne) {
+      return false;
     }
+    if (airborne && defender.juggleCount >= JUGGLE_LIMIT) {
+      return false; // the juggle cap: the victim drops out of the combo and falls
+    }
+
     const reach = Math.trunc(def.reach * FP_SCALE);
     const dx = defender.x - attacker.x;
     const dz = defender.z - attacker.z;
@@ -424,14 +815,38 @@ export class MatchRunner {
     if (distanceSq > reach * reach) {
       return false;
     }
-    // Forgiving rear hitbox: a strike still connects slightly behind the attacker.
-    if (dx * attacker.facing < -(reach >> 1)) {
+    // Forgiving rear hitbox: a strike still connects slightly behind the attacker. A 360 crowd
+    // clearer has no rear, which is the entire point of it, so it skips this test entirely.
+    if (!def.hitsAll && dx * attacker.facing < -(reach >> 1)) {
       return false;
     }
 
     const distanceFp = integerSqrt(distanceSq);
+
+    const window = this.dodgeWindow(defender);
+    if (window !== null && this.dodgeAnswers(defender, def)) {
+      // A reversal window is only a dodge if this archetype has something to counter with. If it
+      // does not, the perfect timing buys nothing and the hit stands — which is the same rule
+      // that lets a whiff-punished reversal reach someone who dodged the wrong way.
+      const counterMoveId = window === 'reversal' ? reversalOf(defender.archetypeId) ?? null : null;
+      if (window === 'slip' || counterMoveId !== null) {
+        return this.resolveDodge(attacker, defender, def, counterMoveId, events);
+      }
+    }
+
     const blocked = this.isGuarded(defender, def);
     const damage = blocked ? 0 : def.damage;
+
+    /**
+     * Horizontal displacement on a *clean* hit.
+     *
+     * Only knockdowns, launchers and throws shove a victim: the attacker does not advance during
+     * a string in this engine, so every frame of knockback on a light hit would be distance the
+     * combo has to walk back, and a five-hit string would drift out of its own reach by hit four.
+     * Blocking always pushes (`knockback / 2`) — that pushback is the defender's reward for
+     * blocking, and it is measured against the *next* attack, not this one.
+     */
+    const displaces = def.knockdown || def.launcher || def.guard === 'throw';
 
     attacker.hitstop = def.hitstop;
     defender.hitstop = def.hitstop;
@@ -444,23 +859,46 @@ export class MatchRunner {
       setState(defender, 'blockstun');
       defender.vx = Math.trunc((def.knockback * attacker.facing) / 2);
       defender.vz = 0;
+      defender.chainId = '';
+      defender.branchTarget = '';
+      defender.chainWindow = 0;
     } else {
       defender.health = Math.max(0, defender.health - def.damage);
       defender.spaMeter = clampInt(defender.spaMeter + SPA_ON_HIT, 0, defender.spaMax);
-      if (def.launcher || def.knockdown) {
-        setState(defender, 'launched');
-        defender.vy = LAUNCH_VELOCITY;
-        defender.vx = def.knockback * attacker.facing;
-        defender.vz = 0;
+      defender.chainId = '';
+      defender.branchTarget = '';
+      defender.chainWindow = 0;
+      // Being hit interrupts whatever the defender was doing, so the move is over — not merely
+      // frozen. Leaving a stale `currentMove` behind would report a fighter as "still in a move"
+      // forever, which is both wrong to read and misleading for anything polling for move end.
+      defender.currentMove = null;
+      defender.movePhaseFrame = 0;
+      if (airborne) {
+        // Juggle: the victim is put back up, and this is the only thing that advances the
+        // counter the cap is measured in. Aerial drift is kept — the juggle is meant to carry the
+        // victim away from the attacker as it goes.
         defender.juggleCount += 1;
+        defender.vy = Math.max(defender.vy, LAUNCH_VELOCITY - def.knockback);
+        defender.vx = displaces ? Math.trunc((def.knockback * attacker.facing) / 2) : 0;
+        defender.vz = 0;
+        setState(defender, 'launched');
         defender.stunRemaining = 0;
         defender.blockstunLeft = 0;
       } else {
-        setState(defender, 'hitstun');
-        defender.stunRemaining = def.hitstun;
-        defender.vx = def.knockback * attacker.facing;
-        defender.vz = 0;
         defender.juggleCount = 0;
+        if (def.launcher || def.knockdown) {
+          setState(defender, 'launched');
+          defender.vy = LAUNCH_VELOCITY;
+          defender.vx = def.knockback * attacker.facing;
+          defender.vz = 0;
+          defender.stunRemaining = 0;
+          defender.blockstunLeft = 0;
+        } else {
+          setState(defender, 'hitstun');
+          defender.stunRemaining = def.hitstun;
+          defender.vx = displaces ? def.knockback * attacker.facing : 0;
+          defender.vz = 0;
+        }
       }
       if (defender.health === 0) {
         defender.eliminated = true;
@@ -487,11 +925,72 @@ export class MatchRunner {
     return true;
   }
 
+  /**
+   * The attack was in range but the defender was dodging, and this dodge answers this guard
+   * level. Either it never happened (`slip`) or it happened and the attacker paid for it
+   * (`reversal`).
+   */
+  private resolveDodge(
+    attacker: Fighter,
+    defender: Fighter,
+    def: MoveDef,
+    counterMoveId: string | null,
+    events: SimEvent[],
+  ): boolean {
+    // The swing passes through and the hitbox is spent either way — a whiffed dodge is still a
+    // dodge, and the attacker is not left holding a live hitbox forever.
+    attacker.hitConsumed = true;
+
+    // Affordability is decided *before* any of the counter's effects land. Every reversal in the
+    // roster is free, but if a table edit ever made one cost gauge, the whole counter has to be
+    // skipped — applying its damage and then failing to start it would both punish the attacker
+    // for nothing and strand the defender mid-dodge.
+    const counter = counterMoveId === null ? undefined : getMove(counterMoveId);
+    const affordable = counter !== undefined && (counter.spaCost === 0 || defender.spaMeter >= counter.spaCost);
+    if (!affordable) {
+      counterMoveId = null;
+    }
+
+    if (counterMoveId !== null && counter !== undefined) {
+      // The countered attack is not frozen: the reversal is what happens *instead* of it.
+      attacker.hitstop = 0;
+      attacker.currentMove = null;
+      attacker.movePhaseFrame = 0;
+      attacker.chainId = '';
+      attacker.branchTarget = '';
+      attacker.chainWindow = 0;
+      attacker.health = Math.max(0, attacker.health - counter.damage);
+      attacker.spaMeter = clampInt(attacker.spaMeter + SPA_ON_HIT, 0, attacker.spaMax);
+      setState(attacker, 'hitstun');
+      attacker.stunRemaining = counter.hitstun;
+      attacker.vx = Math.trunc((counter.knockback * defender.facing) / 2);
+      attacker.vz = 0;
+      if (attacker.health === 0) {
+        attacker.eliminated = true;
+        setState(attacker, 'down');
+      }
+      // The dodge is spent by the counter: `beginMove` takes the defender out of the dodge state.
+      this.beginMove(defender, counter, events, false);
+    }
+
+    const dodgeEvent: DodgeEvent = {
+      type: 'dodge',
+      tick: this.tick,
+      slot: defender.slot,
+      direction: defender.state === 'dodge_high' ? 'high' : 'low',
+      evadedMoveId: def.id,
+      outcome: counterMoveId === null ? 'slip' : 'reversal',
+      counterMoveId,
+    };
+    events.push(dodgeEvent);
+    return true;
+  }
+
   private isGuarded(defender: Fighter, def: MoveDef): boolean {
     if (def.guard === 'throw' || def.guard === 'unblockable') {
       return false;
     }
-    // Phase 0 guard state is derived from the defender's current state: only a free fighter
+    // Guard state is derived from the defender's current state: only a free fighter
     // holding a guard can block, so a hit taken mid-move is always a clean hit.
     if (defender.state !== 'idle' && defender.state !== 'walk') {
       return false;

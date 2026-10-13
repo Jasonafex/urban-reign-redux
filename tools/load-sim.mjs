@@ -16,7 +16,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 /** Repository root, resolved from this file rather than the caller's cwd. */
 export const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
+// `defs` is deliberately not re-exported here: `moveset` re-exports every name it defines, and a
+// second `export *` of the same symbols would make the bundle's export table ambiguous.
 const SIM_ENTRY = `export * from './src/config';
+export * from './src/combat/archetypes';
 export * from './src/combat/moveset';
 export * from './src/sim/events';
 export * from './src/sim/fighter';
