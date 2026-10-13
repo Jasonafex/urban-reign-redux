@@ -13,3 +13,6 @@ __pycache__/
 # web client build output
 dist/
 *.tsbuildinfo
+
+# esbuild scratch bundles for the headless test suite (tools/load-sim.mjs)
+.test-build/

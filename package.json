@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "report": "node tools/feel-report.mjs"
+    "report": "node tools/feel-report.mjs",
+    "lan-server": "node tools/lan-server.mjs"
   },
   "dependencies": {
     "three": "^0.186.1",

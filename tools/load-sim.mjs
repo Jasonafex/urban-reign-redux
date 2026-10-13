@@ -8,7 +8,7 @@
  */
 
 import { build } from 'esbuild';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -44,7 +44,41 @@ export * from './src/input/join';
 export const TOUCH_ENTRY = `export * from './src/ui/touch';
 `;
 
+// The QR encoder. Bundled on its own because `test/qr.test.mjs` scans the matrix generator for
+// DOM and wall-clock reach, and because it must stay importable with no document present.
+export const QR_ENTRY = `export * from './src/ui/qr';
+`;
+
+/**
+ * The *pure* half of the networking layer: the wire protocol and the rollback engine.
+ *
+ * Deliberately excludes `client.ts` and `server.ts`. `client.ts` legitimately reads
+ * `performance.now()` and touches `WebSocket`; `server.ts` needs Node's socket stack. Bundling
+ * them separately from `protocol` + `rollback` is what lets the architecture gate assert that the
+ * engine driving four fighters' simulation has no clock, no socket and no DOM in it.
+ */
+export const NET_ENTRY = `export * from './src/net/protocol';
+export * from './src/net/rollback';
+`;
+
+/**
+ * The relay server, on its own graph.
+ *
+ * `protocol` is bundled in again rather than shared with `NET_ENTRY`, because esbuild emits a
+ * separate file per entry and each suite needs to load exactly one copy of the protocol module —
+ * two copies would mean `instanceof`-free but identity-sensitive constants and duplicated state.
+ */
+export const SERVER_ENTRY = `export * from './src/net/protocol';
+export * from './src/net/server';
+`;
+
+/** The browser client, on its own graph, with the same reasoning as `SERVER_ENTRY`. */
+export const CLIENT_ENTRY = `export * from './src/net/protocol';
+export * from './src/net/client';
+`;
+
 let tempDir = null;
+let repoTempDir = null;
 
 function ensureTempDir() {
   if (tempDir === null) {
@@ -53,8 +87,27 @@ function ensureTempDir() {
   return tempDir;
 }
 
-async function bundle(entry, name) {
-  const outfile = join(ensureTempDir(), `${name}.mjs`);
+/**
+ * A scratch directory *inside the repo*, used for bundles that import a real runtime dependency.
+ *
+ * `ws` reaches for `require('events')`, which esbuild cannot inline into an ESM bundle, so it has
+ * to stay external — and an external bare specifier only resolves if the importing file can walk
+ * up to the repo's `node_modules`. A bundle written to the OS temp directory cannot, so the server
+ * graph lands here instead. Cleaned up by `cleanup()` along with everything else.
+ */
+function ensureRepoTempDir() {
+  if (repoTempDir === null) {
+    const dir = join(ROOT, '.test-build');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    repoTempDir = dir;
+  }
+  return repoTempDir;
+}
+
+async function bundle(entry, name, options = {}) {
+  const dir = options.external === undefined ? ensureTempDir() : ensureRepoTempDir();
+  const outfile = join(dir, `${name}.mjs`);
   await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'ts', sourcefile: `${name}.ts` },
     bundle: true,
@@ -63,6 +116,7 @@ async function bundle(entry, name) {
     target: 'node20',
     outfile,
     logLevel: 'silent',
+    ...(options.external === undefined ? {} : { external: options.external }),
   });
   return outfile;
 }
@@ -101,6 +155,36 @@ export async function loadTouch() {
 }
 
 /**
+ * Load the pure networking layer (`src/net/protocol` + `src/net/rollback`).
+ *
+ * These two must import and run in Node with no browser and no socket: `test/rollback.test.mjs`
+ * drives the real engine across dozens of peers-in-one-process, and `test/lan.test.mjs` gates the
+ * input validator against hostile packets. Both properties depend on this graph staying pure.
+ */
+export async function loadNet() {
+  const outfile = await bundle(NET_ENTRY, 'net');
+  return import(pathToFileURL(outfile).href);
+}
+
+/** Load the relay server (`src/net/server`) so the LAN suite can bind a real port. */
+export async function loadServer() {
+  const outfile = await bundle(SERVER_ENTRY, 'server', { external: ['ws'] });
+  return import(pathToFileURL(outfile).href);
+}
+
+/** Load the browser client (`src/net/client`) so the LAN suite can drive it against the relay. */
+export async function loadClient() {
+  const outfile = await bundle(CLIENT_ENTRY, 'client');
+  return import(pathToFileURL(outfile).href);
+}
+
+/** Load the QR encoder (`src/ui/qr`) headlessly. */
+export async function loadQr() {
+  const outfile = await bundle(QR_ENTRY, 'qr');
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
  * Bundle an entry and return its transpiled source text, for architecture scans that prove a layer
  * never reaches for DOM or wall-clock globals. Comments are stripped by the bundler, so a match here
  * is real code and not a doc comment.
@@ -122,7 +206,12 @@ export function readBundleSource(name) {
 export async function buildSources() {
   await bundle(SIM_ENTRY, 'sim');
   await bundle(LOOP_ENTRY, 'loop');
-  return { sim: readBundleSource('sim'), loop: readBundleSource('loop') };
+  await bundle(NET_ENTRY, 'net');
+  return {
+    sim: readBundleSource('sim'),
+    loop: readBundleSource('loop'),
+    net: readBundleSource('net'),
+  };
 }
 
 export function cleanup() {
