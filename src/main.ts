@@ -6,13 +6,28 @@
  * *inputs* into `fixedUpdate` — that is the only permitted direction of influence. Every DOM
  * lookup is guarded so importing this module in a headless runner degrades to a no-op instead
  * of throwing.
+ *
+ * Phase 2 replaces the single-player key handler with a full input stack:
+ *   - `GamepadSource` polls up to four Standard Gamepad devices,
+ *   - `KeyboardSource` serves the two split-keyboard layouts,
+ *   - `TouchController` puts a thumbstick and action buttons on a phone,
+ *   - `JoinManager` decides which of those is in which of the four player slots, and
+ *   - `InputHistory` turns each device's held state into one buffered `FrameInput` per slot.
+ *
+ * The rule that keeps this honest: the sim reads `FrameInput[]` and nothing else. It never asks
+ * what a gamepad is, and every device reaches it through the same buffer.
  */
 
 import * as THREE from 'three';
 import { ARENA_HALF_EXTENT, FP_SCALE, RENDER, TICK_HZ } from './config';
-import type { MoveStance } from './combat/moveset';
 import { startFixedLoop } from './core/loop';
-import { CHAIN_PRESS, MatchRunner, NEUTRAL_INPUT, type FrameInput } from './sim/runner';
+import { GamepadSource } from './input/gamepad';
+import { KeyboardSource } from './input/keyboard';
+import { JoinManager } from './input/join';
+import { TouchController, TouchInputState } from './ui/touch';
+import type { FrameInput } from './sim/runner';
+import { MatchRunner, NEUTRAL_INPUT } from './sim/runner';
+import type { Fighter } from './sim/fighter';
 import { isHit, type SimEvent } from './sim/events';
 
 const SLOT_COLORS = [0xd8443c, 0x7dd83c, 0x3c8fd8, 0xd8b23c] as const;
@@ -21,51 +36,6 @@ interface FighterProxy {
   group: THREE.Group;
   marker: THREE.Mesh;
   healthBar: THREE.Mesh;
-}
-
-/** Latest keyboard state. Read (never written) by the sim tick; written only by DOM events. */
-const keys = new Set<string>();
-
-/**
- * Attack press waiting to be consumed, edge-detected.
- *
- * `FrameInput.attack` is read by the sim on *every* actionable tick, so feeding it straight from
- * `keys.has(...)` makes a held key re-trigger the whole chain the instant it recovers — a held Piston
- * Gun would fire its five barrels forever. Latching on keydown and clearing once the tick has seen
- * it makes one physical press mean exactly one button input, which is what the sim expects.
- *
- * The latch is dropped whether or not the fighter could act on it, so there is no input buffering
- * yet: a press during recovery is lost. That is a deliberate Phase 1 simplification, not an
- * oversight — buffering is a netcode-visible behaviour and belongs with the rollback work.
- */
-let attackLatch: string | null = null;
-
-/**
- * Directional stance from the movement keys, for the 4-way chain branching (AGENTS.md §5).
- * Held direction picks which of the four chains a bare attack press starts.
- */
-function readStance(): MoveStance {
-  if (keys.has('KeyW')) return 'up';
-  if (keys.has('KeyS')) return 'down';
-  if (keys.has('KeyA') || keys.has('KeyD')) return 'side';
-  return 'neutral';
-}
-
-function readInput(slot: number): FrameInput {
-  if (slot !== 0) {
-    // Only player 1 is wired up in Phase 1; the remaining slots idle (they still exist in the
-    // hash and still get simulated, which is exactly what the determinism suite needs).
-    return { ...NEUTRAL_INPUT };
-  }
-  const attack = attackLatch;
-  return {
-    moveX: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0),
-    moveZ: (keys.has('KeyS') ? 1 : 0) - (keys.has('KeyW') ? 1 : 0),
-    attack,
-    stance: readStance(),
-    guard: keys.has('ShiftLeft') ? 'high' : keys.has('KeyC') ? 'low' : 'none',
-    dodge: keys.has('KeyU') ? 'high' : keys.has('KeyI') ? 'low' : 'none',
-  };
 }
 
 function boot(): void {
@@ -182,10 +152,71 @@ function boot(): void {
     'white-space:pre;pointer-events:none';
   document.body.appendChild(hud);
 
+  // -------------------------------------------------------------------------------------------
+  // Input stack: four pads, two keyboards, one touch overlay, four slots
+  // -------------------------------------------------------------------------------------------
+
+  const keyboard = new KeyboardSource();
+  const gamepads = new GamepadSource();
+  // The touch state is pure and lives in `src/ui/touch.ts`; the controller is the DOM half. A phone
+  // gets the overlay, and a desktop with a touchscreen gets one on first touch — either way the
+  // `JoinManager` sees the same pure state object.
+  const touchState = new TouchInputState();
+  const touchController = new TouchController({ state: touchState });
+  touchController.attach();
+
+  const join = new JoinManager({
+    gamepads: gamepads.available ? gamepads : null,
+    keyboard,
+    touch: touchState,
+  });
+
+  const onKeyDown = (event: KeyboardEvent): void => {
+    // `repeat` is filtered inside the source: an OS auto-repeat is not a new press, and holding
+    // J must not machine-gun the chain opener.
+    keyboard.keyDown(event.code, event.repeat === true);
+    if (keyboard.bindsKey(event.code)) {
+      // Keys the game owns do not reach the browser: P2's arrows would scroll the page and the
+      // arrow keys would move focus off the canvas mid-string.
+      event.preventDefault();
+    }
+  };
+  const onKeyUp = (event: KeyboardEvent): void => {
+    keyboard.keyUp(event.code);
+  };
+  globalThis.addEventListener?.('keydown', onKeyDown);
+  globalThis.addEventListener?.('keyup', onKeyUp);
+  globalThis.addEventListener?.('blur', () => {
+    keyboard.releaseAll();
+    touchState.releaseAll();
+  });
+
   let lastEvents: SimEvent[] = [];
   let fpsWindowStart = 0;
   let fpsFrames = 0;
   let fps = 0;
+  let joinBanner = '';
+
+  /**
+   * Did the simulation take the press this slot was handed?
+   *
+   * A move that starts on this tick reports `movePhaseFrame === 1` (the sim counts it up once, in
+   * the same tick it began), and a dodge that started reports `stateFrame === 1`. Anything else
+   * means the fighter was in recovery, stun or hitstop — in which case the buffer keeps the press
+   * and re-offers it, which is what makes a confirm-press land.
+   */
+  function pressAccepted(fighter: Fighter, input: FrameInput): boolean {
+    if (input.dodge !== 'none') {
+      return (
+        (fighter.state === 'dodge_high' || fighter.state === 'dodge_low') &&
+        fighter.stateFrame <= 1
+      );
+    }
+    if (input.attack !== null) {
+      return fighter.currentMove !== null && fighter.movePhaseFrame === 1;
+    }
+    return false;
+  }
 
   const resize = (): void => {
     const width = container.clientWidth || 1280;
@@ -196,35 +227,33 @@ function boot(): void {
   };
   globalThis.addEventListener?.('resize', resize);
 
-  const onKeyDown = (event: KeyboardEvent): void => {
-    keys.add(event.code);
-    // `event.repeat` is filtered so holding a key does not re-latch the press on every OS repeat.
-    if (event.repeat) {
-      return;
-    }
-    if (event.code === 'KeyJ') attackLatch = CHAIN_PRESS;
-    else if (event.code === 'KeyK') attackLatch = 'straight';
-    else if (event.code === 'KeyL') attackLatch = 'kick';
-  };
-  const onKeyUp = (event: KeyboardEvent): void => {
-    keys.delete(event.code);
-  };
-  globalThis.addEventListener?.('keydown', onKeyDown);
-  globalThis.addEventListener?.('keyup', onKeyUp);
-  globalThis.addEventListener?.('blur', () => {
-    keys.clear();
-    attackLatch = null;
-  });
-
   const loop = startFixedLoop({
     fixedUpdate: (dt) => {
-      const events = runner.fixedUpdate(
-        dt,
-        runner.fighters.map((fighter) => readInput(fighter.slot)),
+      // The tick the world is about to run. Input is sampled for *this* tick, never for the last
+      // one, so a 144Hz host and a 30Hz host feed the simulation the same presses in the same order.
+      const tick = runner.tick + 1;
+      const joinEvents = join.poll(tick);
+      const inputs = join.frameInputs(tick);
+
+      const events = runner.fixedUpdate(dt, inputs);
+
+      // Feed the result back so the buffer knows whether each press was taken: an accepted press is
+      // done, a rejected one stays queued for the next tick until the 8-tick window closes.
+      join.settle(
+        tick,
+        runner.fighters.map((fighter, slot) =>
+          pressAccepted(fighter, inputs[slot] ?? { ...NEUTRAL_INPUT }),
+        ),
       );
-      // One physical press is one button input: clear the latch after the tick that consumed it,
-      // so holding the key cannot re-trigger the chain the moment the fighter recovers.
-      attackLatch = null;
+
+      for (const event of joinEvents) {
+        joinBanner =
+          event.type === 'join'
+            ? `slot ${event.slot + 1} · ${event.label} joined`
+            : event.type === 'leave'
+              ? `slot ${event.slot + 1} · ${event.label} left`
+              : joinBanner;
+      }
       if (events.length > 0) {
         lastEvents = events;
       }
@@ -272,9 +301,13 @@ function boot(): void {
 
       const hits = lastEvents.filter(isHit).length;
       const hash = runner.stateHash();
+      const roster = join.slots
+        .map((slot) => `${slot.slot + 1}:${slot.kind === 'empty' ? '—' : slot.label}`)
+        .join('  ');
       hud.textContent =
         `${TICK_HZ}Hz fixed  ·  tick ${runner.tick}  ·  ${fps}fps  ·  frames ${frameCount}\n` +
-        `hash ${hash}  ·  events ${lastEvents.length} (${hits} hits)`;
+        `hash ${hash}  ·  events ${lastEvents.length} (${hits} hits)\n` +
+        `${roster}${joinBanner === '' ? '' : `\n${joinBanner}`}`;
     },
   });
 
@@ -282,7 +315,17 @@ function boot(): void {
   bootScreen?.setAttribute('data-state', 'running');
 
   // Debug handle for the browser console, replay tools and manual netcode checks.
-  (globalThis as unknown as { __UR__?: unknown }).__UR__ = { runner, scene, renderer, loop };
+  (globalThis as unknown as { __UR__?: unknown }).__UR__ = {
+    runner,
+    scene,
+    renderer,
+    loop,
+    join,
+    keyboard,
+    gamepads,
+    touch: touchState,
+    touchController,
+  };
 }
 
 if (typeof document !== 'undefined') {

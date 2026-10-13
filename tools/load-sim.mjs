@@ -29,6 +29,21 @@ export * from './src/sim/runner';
 const LOOP_ENTRY = `export * from './src/core/loop';
 `;
 
+// The input stack. Bundled on its own so the architecture gate can scan exactly what the headless
+// suite drives: every device layer and the join manager, with the simulation reachable through
+// `FrameInput` but no DOM in sight.
+export const INPUT_ENTRY = `export * from './src/input/layout';
+export * from './src/input/gamepad';
+export * from './src/input/keyboard';
+export * from './src/input/buffer';
+export * from './src/input/join';
+`;
+
+// The touch module. Half of it is DOM (the overlay controller), which is exactly why it is scanned
+// separately from the input stack: the pure half must stay importable in Node.
+export const TOUCH_ENTRY = `export * from './src/ui/touch';
+`;
+
 let tempDir = null;
 
 function ensureTempDir() {
@@ -65,6 +80,34 @@ export async function loadSim() {
 export async function loadLoop() {
   const outfile = await bundle(LOOP_ENTRY, 'loop');
   return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Load the input stack (`src/input/*`) headlessly.
+ *
+ * The whole stack must import cleanly in Node: that is the property `test/input.test.mjs` gates,
+ * because a device layer that reaches for `document` at module scope would take down the headless
+ * run before a single assertion executed.
+ */
+export async function loadInput() {
+  const outfile = await bundle(INPUT_ENTRY, 'input');
+  return import(pathToFileURL(outfile).href);
+}
+
+/** Load the touch module (`src/ui/touch`) — both the pure state and the DOM overlay. */
+export async function loadTouch() {
+  const outfile = await bundle(TOUCH_ENTRY, 'touch');
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Bundle an entry and return its transpiled source text, for architecture scans that prove a layer
+ * never reaches for DOM or wall-clock globals. Comments are stripped by the bundler, so a match here
+ * is real code and not a doc comment.
+ */
+export async function sourceFor(name, entry) {
+  await bundle(entry, name);
+  return readBundleSource(name);
 }
 
 /**
