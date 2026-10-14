@@ -208,6 +208,7 @@ test('stateHash covers every field that can influence a future tick', () => {
   const mutations = {
     slot: (f) => f.slot + 7,
     archetypeId: (f) => `${f.archetypeId}_mut`,
+    team: (f) => (f.team === 0 ? 1 : 0),
     x: (f) => f.x + 1,
     y: (f) => f.y + 999,
     z: (f) => f.z - 1,
@@ -332,6 +333,74 @@ test('measured frame data is identical at 30/60/144/240Hz', async () => {
       assert.equal(measurement.recovery, def.recovery, `${def.id} recovery at ${measurement.frameHz}Hz`);
     }
   }
+});
+
+test('the CPU fill and the bot controller import and decide with no browser present', () => {
+  // `AiController` and `MatchRules` are in the simulation graph, so the architecture gate above
+  // already proved they contain no DOM and no `Math.random`. What it cannot prove is that the bot
+  // actually *works* headlessly — so drive it and assert it plays rather than freezes.
+  const { AiController, MatchRules, matchSpawns } = sim;
+  const runner = new MatchRunner(matchSpawns('free_for_all'));
+  const ai = new AiController({ seed: 99 });
+  const rules = new MatchRules({ mode: 'free_for_all', spawns: matchSpawns('free_for_all') });
+
+  let moved = 0;
+  let pressed = 0;
+  let hits = 0;
+  for (let tick = 0; tick < 1500; tick += 1) {
+    const inputs = ai.fill(
+      runner,
+      runner.fighters.map(() => idleInput()),
+      [0, 1, 2, 3],
+    );
+    for (const input of inputs) {
+      if (input.moveX !== 0 || input.moveZ !== 0) moved += 1;
+      if (input.attack !== null) pressed += 1;
+    }
+    const events = runner.fixedUpdate(DT, inputs);
+    hits += events.filter((event) => event.type === 'hit').length;
+    rules.step(runner, events);
+  }
+
+  // The bounds are deliberately loose. The point is that the bots *play* — close the distance,
+  // commit to strings and connect — not that they play at any particular rate. A bot that walks
+  // forever and a bot that mashes from spawn both fail the damage assertion below.
+  assert.ok(moved > 500, `bots barely moved (${moved} movement inputs in 1500 ticks)`);
+  assert.ok(pressed > 20, `bots barely attacked (${pressed} attack inputs in 1500 ticks)`);
+  assert.ok(hits > 10, `bots connected ${hits} times — they are not actually fighting`);
+  assert.ok(
+    runner.fighters.some((fighter) => fighter.health < fighter.maxHealth),
+    'a 1500-tick bot match dealt no damage at all',
+  );
+});
+
+test('the bot controller is a pure function of seed, slot and tick (rewind-safe)', () => {
+  // The rollback engine rewinds the world and re-simulates. A bot holding a mutable RNG would have
+  // already drawn a *different* number by the time the world rewound to before that draw, so the
+  // rewound tick would diverge and never re-converge. This gates the property that prevents that:
+  // the same (seed, slot, tick, world) always yields the same input, with nothing carried over.
+  const { AiController, matchSpawns } = sim;
+  const spawns = matchSpawns('free_for_all');
+
+  const record = (seed) => {
+    const runner = new MatchRunner(spawns);
+    const ai = new AiController({ seed });
+    const trace = [];
+    for (let tick = 0; tick < 400; tick += 1) {
+      const inputs = ai.fill(runner, runner.fighters.map(() => idleInput()), [0, 1, 2, 3]);
+      trace.push(inputs.map((input) => `${input.moveX},${input.moveZ},${input.attack},${input.dodge},${input.guard}`));
+      runner.fixedUpdate(DT, inputs);
+    }
+    return { trace, hash: runner.stateHash() };
+  };
+
+  const a = record(1234);
+  const b = record(1234);
+  const c = record(4321);
+
+  assert.deepEqual(a.trace, b.trace, 'the same seed produced two different input streams');
+  assert.equal(a.hash, b.hash, 'the same seed produced two different worlds');
+  assert.notDeepEqual(a.trace, c.trace, 'a different seed produced an identical input stream');
 });
 
 test('the simulation bundle has no DOM, WebGL, wall-clock or randomness dependency', () => {

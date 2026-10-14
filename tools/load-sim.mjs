@@ -24,6 +24,8 @@ export * from './src/combat/moveset';
 export * from './src/sim/events';
 export * from './src/sim/fighter';
 export * from './src/sim/runner';
+export * from './src/sim/modes';
+export * from './src/sim/ai';
 `;
 
 const LOOP_ENTRY = `export * from './src/core/loop';

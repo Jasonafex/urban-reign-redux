@@ -336,12 +336,13 @@ export class JoinManager {
       return -1;
     }
     const slot = this.records.findIndex((record) => record.kind === 'empty');
-    if (slot < 0) {
+    const vacant = slot < 0 ? this.takeOverBot() : slot;
+    if (vacant < 0) {
       // More than four players pressed start. The match still runs on the four slots that exist;
       // the overflow device is simply not seated, and it will claim a slot the moment one frees.
       return -1;
     }
-    const record = this.records[slot] as SlotRecord;
+    const record = this.records[vacant] as SlotRecord;
     record.kind = kind;
     record.deviceId = deviceId;
     record.label = label;
@@ -351,7 +352,25 @@ export class JoinManager {
     // A new occupant never inherits the previous one's buffered presses: a slot handed from a
     // disconnected pad to a keyboard must not fire the pad's last input.
     record.history.reset();
-    this.byDevice.set(deviceId, slot);
+    this.byDevice.set(deviceId, vacant);
+    return vacant;
+  }
+
+  /**
+   * The lowest slot currently held by a CPU, cleared and returned.
+   *
+   * Bot fill (Phase 5) exists to make a one-player game playable, so it must never be the reason a
+   * *second* player cannot sit down. With bot fill at four, all four slots are CPUs, and a gamepad
+   * plugging in would find nothing to claim and silently never join — the exact opposite of what
+   * "fill the empty slots" means. Reclaiming the lowest bot slot makes a human always win over a
+   * CPU, and `fillBots` puts a CPU back into whatever is left over on the next poll.
+   */
+  private takeOverBot(): number {
+    const slot = this.records.findIndex((record) => record.kind === 'bot');
+    if (slot < 0) {
+      return -1;
+    }
+    this.clearSlot(this.records[slot] as SlotRecord);
     return slot;
   }
 

@@ -61,6 +61,14 @@ import type { FrameInput } from './sim/runner';
 import { MatchRunner, NEUTRAL_INPUT } from './sim/runner';
 import type { Fighter } from './sim/fighter';
 import { isHit, type SimEvent } from './sim/events';
+import { AiController } from './sim/ai';
+import {
+  GAME_MODES,
+  MatchRules,
+  modeDef,
+  type GameModeId,
+  type ModeEvent,
+} from './sim/modes';
 import { LanClient, relayUrl } from './net/client';
 import { RollbackSession } from './net/rollback';
 import {
@@ -110,6 +118,22 @@ function readLanFlags(): { enabled: boolean; relayHost: string | null } {
     return { enabled: true, relayHost: join };
   }
   return { enabled: params.has('lan'), relayHost: null };
+}
+
+/**
+ * The game mode from `?mode=`, defaulting to the Free-For-All.
+ *
+ * On the join URL this is how a phone is told which match it is walking into: the QR code encodes
+ * the host's full URL, so `?mode=team_battle` rides along with it and every device in the house
+ * starts on the same roster. Unrecognised values fall back to the default rather than throwing —
+ * a mistyped query flag should not leave someone staring at a blank screen.
+ */
+function readModeFromUrl(): GameModeId {
+  if (typeof location === 'undefined') {
+    return 'free_for_all';
+  }
+  const requested = new URLSearchParams(location.search).get('mode');
+  return GAME_MODES.some((mode) => mode.id === requested) ? (requested as GameModeId) : 'free_for_all';
 }
 
 function createLanMatch(onSessionReady: (session: RollbackSession) => void): LanMatch | null {
@@ -307,6 +331,70 @@ function mountLanPanel(root: HTMLElement, lan: LanMatch): boolean {
   return true;
 }
 
+/**
+ * The mode / CPU-fill control strip.
+ *
+ * A DOM control rather than keys alone, because the two things it does — "which match am I in"
+ * and "am I playing against people or machines" — are the first two questions a new player asks,
+ * and neither is discoverable from a key nobody has pressed yet. Every button is labelled with its
+ * own shortcut so the keys stay findable.
+ */
+function mountModePanel(root: HTMLElement, actions: {
+  onMode: (mode: GameModeId) => void;
+  onCpuFill: (count: number) => void;
+  onRematch: () => void;
+  describe: () => string;
+}): () => void {
+  const panel = document.createElement('div');
+  panel.style.cssText =
+    'position:fixed;left:12px;bottom:12px;font:11px/1.5 ui-monospace,monospace;color:#cfd4dc;' +
+    'background:rgba(12,14,18,.82);border:1px solid #2a2e35;border-radius:8px;padding:10px;' +
+    'min-width:210px;z-index:10';
+
+  const status = document.createElement('div');
+  status.style.cssText = 'white-space:pre;margin-bottom:8px;color:#8b9099';
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
+
+  const button = (label: string, title: string, onClick: () => void): HTMLButtonElement => {
+    const node = document.createElement('button');
+    node.textContent = label;
+    node.title = title;
+    node.style.cssText =
+      'font:inherit;padding:5px 8px;background:#20242b;color:#cfd4dc;border:1px solid #2a2e35;' +
+      'border-radius:4px;cursor:pointer;flex:1 1 auto';
+    node.addEventListener('click', onClick);
+    return node;
+  };
+
+  const ffa = button('Free-For-All [M]', 'Switch to 4-player free-for-all', () =>
+    actions.onMode('free_for_all'),
+  );
+  const team = button('2v2 Team [M]', 'Switch to 2v2 — P1+P3 against P2+P4', () =>
+    actions.onMode('team_battle'),
+  );
+  const cpu = button('CPU fill [B]', 'Seat a CPU in every unclaimed slot, or clear them all', () =>
+    actions.onCpuFill(0),
+  );
+  const again = button('Rematch [R]', 'Call a rematch on the victory screen', () => actions.onRematch());
+
+  row.append(ffa, team, cpu, again);
+  panel.append(status, row);
+  root.appendChild(panel);
+
+  let lastStatus = '';
+  const refresh = (): void => {
+    const next = actions.describe();
+    if (next !== lastStatus) {
+      status.textContent = next;
+      lastStatus = next;
+    }
+  };
+  refresh();
+  return refresh;
+}
+
 function boot(): void {
   const container = document.getElementById('app');
   const status = document.getElementById('boot-status');
@@ -351,9 +439,17 @@ function boot(): void {
   const hud = new ArcadeHud();
   hud.mount(container);
 
+  // Phase 5: the match rules and the CPU fill.
+  //
+  // `MatchRules` is a pure function of the world — it never writes to a fighter — so the local
+  // instance is a valid view of a match even when a LAN peer owns the authoritative world. The
+  // roster, however, is chosen here, so `?mode=` rides the join URL and both ends start alike.
+  let rules = new MatchRules({ mode: readModeFromUrl() });
+  const ai = new AiController();
+
   // Mutable because a LAN session brings its own world: when the relay assigns a slot, the
   // rollback session's `MatchRunner` becomes the one being rendered. Offline it never changes.
-  let runner: MatchRunner = new MatchRunner();
+  let runner: MatchRunner = new MatchRunner(rules.spawns);
   const roster = new CharacterRoster(scene);
 
   /**
@@ -401,6 +497,129 @@ function boot(): void {
     touch: touchState,
   });
 
+  // -------------------------------------------------------------------------------------------
+  // Phase 5: match mode, the CPU fill and the round lifecycle
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Start a fresh match in `mode`: new roster, new world, new rules.
+   *
+   * Switching teams means the *fighters themselves* change (a fighter's team is world state, so it
+   * is in the state hash), which is why this rebuilds the runner rather than reassigning a field.
+   * Everything downstream — the rigs, the HUD's ghost bars, the lifecycle clock — is reset with it,
+   * because a 2v2 must not open on a board that still has a half-healed Free-For-All on it.
+   */
+  function startMatch(mode: GameModeId): void {
+    // On a LAN session the world belongs to the rollback session, and replacing it here would swap
+    // a peer-owned world out from under the renderer and the netcode both. The mode rides the join
+    // URL instead — that is how everyone in the house ends up on the same roster.
+    if (lan !== null && lan.live) {
+      matchBanner = 'mode is fixed once a LAN session is live — reload with ?mode= to change it';
+      return;
+    }
+    rules = new MatchRules({ mode });
+    runner = new MatchRunner(rules.spawns);
+    buildProxies();
+    matchBanner = `${modeDef(mode).label} — press start`;
+  }
+
+  /**
+   * The CPU fill toggle.
+   *
+   * `0` is the default and is the honest one: with no devices connected a four-player board is
+   * four fighters standing in a ring doing nothing. Turning it on seats a CPU in every slot nobody
+   * has claimed, and `JoinManager` hands a CPU's slot straight back the moment a real device
+   * appears — so this never locks a second player out.
+   */
+  function setCpuFill(count: number): void {
+    cpuFill = Math.max(0, Math.min(count, join.maxSlots));
+    join.setBotFill(cpuFill);
+    if (cpuFill > 0) {
+      matchBanner = `CPU fill: ${cpuFill} slot${cpuFill === 1 ? '' : 's'}`;
+    }
+  }
+
+  /** Slots a CPU is currently driving. Recomputed each tick from the join table, never cached. */
+  function botSlots(): number[] {
+    const slots: number[] = [];
+    for (const entry of join.slots) {
+      if (entry.kind === 'bot') {
+        slots.push(entry.slot);
+      }
+    }
+    return slots;
+  }
+
+  /**
+   * React to the match clock.
+   *
+   * A new round and a rematch both mean "rebuild the world", and the host owns that because the
+   * world is its object — the rules decide *when*, the client decides *how*. Round timers are
+   * carried across a reset deliberately: the AI hashes on the tick, and a timer that restarted at
+   * zero every round would give every fighter the same opening string forever.
+   *
+   * On a LAN session the world belongs to the rollback engine instead, and it must not be reset
+   * here: `MatchRunner.reset()` zeroes the tick counter, and the session's snapshot and confirmed
+   * input rings are both indexed by it. Rewinding the tick to zero mid-session would leave those
+   * rings describing a different fight than the one being played. The lifecycle still runs — it is
+   * a pure function of the world, so the announcement is a correct local view — but the peer-owned
+   * world is left alone.
+   */
+  function applyModeEvents(events: readonly ModeEvent[]): void {
+    const worldIsOurs = !(lan !== null && lan.live);
+    for (const event of events) {
+      switch (event.type) {
+        case 'ko':
+          matchBanner = `P${event.slot + 1} K.O. — ${event.team === null ? 'free-for-all' : `team ${event.team}`}`;
+          break;
+        case 'timeout':
+          matchBanner = `TIME — ${event.winner.label}`;
+          break;
+        case 'match_over':
+          matchBanner = `VICTORY — ${event.winner.label}`;
+          sound.spaCharge(2);
+          break;
+        case 'round_won':
+        case 'rematch':
+          if (worldIsOurs) {
+            // A new round (and a new match) start from the spawn table, not from the old board.
+            runner.reset();
+            buildProxies();
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  // Mode, CPU fill and rematch on keys that no keyboard layout claims. `M`, `B` and `R` are absent
+  // from both `P1_KEYBOARD` (WASD + JKL + UCI O + Shift + C) and `P2_KEYBOARD` (arrows + numpad),
+  // so a global shortcut here can never eat a player's attack press.
+  const onGlobalKey = (event: KeyboardEvent): void => {
+    if (event.repeat === true) {
+      return;
+    }
+    switch (event.code) {
+      case 'KeyM':
+        startMatch(rules.mode === 'free_for_all' ? 'team_battle' : 'free_for_all');
+        break;
+      case 'KeyB':
+        // 0 → 4 → 0: one key that walks the fill up and back off again.
+        setCpuFill(cpuFill >= join.maxSlots ? 0 : cpuFill + 1);
+        break;
+      case 'KeyR':
+        if (!rules.requestRematch(0)) {
+          matchBanner = 'not on the victory screen yet';
+        }
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+  };
+  globalThis.addEventListener?.('keydown', onGlobalKey);
+
   const onKeyDown = (event: KeyboardEvent): void => {
     // `repeat` is filtered inside the source: an OS auto-repeat is not a new press, and holding
     // J must not machine-gun the chain opener.
@@ -426,6 +645,10 @@ function boot(): void {
   let fpsFrames = 0;
   let fps = 0;
   let joinBanner = '';
+  /** Mode announcements, kept to the last one. The lifecycle itself is in `rules`. */
+  let matchBanner = '';
+  /** How many empty slots the CPU fill is currently holding open. */
+  let cpuFill = 0;
 
   /**
    * Did the simulation take the press this slot was handed?
@@ -479,6 +702,19 @@ function boot(): void {
   if (lan !== null) {
     mountLanPanel(container, lan);
   }
+
+  const refreshModePanel = mountModePanel(container, {
+    onMode: (mode) => startMatch(mode),
+    // `0` means "toggle": filled goes empty, empty goes full. One button for both, matching what
+    // its own label promises.
+    onCpuFill: (count) => setCpuFill(cpuFill > 0 ? count : join.maxSlots),
+    onRematch: () => {
+      if (!rules.requestRematch(0)) {
+        matchBanner = 'not on the victory screen yet';
+      }
+    },
+    describe: () => `${rules.describe()}\nCPU fill ${cpuFill}/${join.maxSlots}`,
+  });
 
   // -------------------------------------------------------------------------------------------
   // Event stream -> presentation
@@ -608,7 +844,7 @@ function boot(): void {
       // one, so a 144Hz host and a 30Hz host feed the simulation the same presses in the same order.
       const tick = runner.tick + 1;
       const joinEvents = join.poll(tick);
-      const inputs = join.frameInputs(tick);
+      let inputs = join.frameInputs(tick);
 
       let events: SimEvent[];
       if (lan !== null && lan.live) {
@@ -618,6 +854,20 @@ function boot(): void {
         events = lan.step(inputs[localSlot] ?? NEUTRAL_INPUT);
         void dt; // the rollback session advances whole 1/60 ticks; it never takes a variable dt
       } else {
+        // The CPU fill goes in *after* the humans and *before* the sim, and it only ever replaces
+        // slots the join table says are CPU-held. A bot is a source of `FrameInput` like any other
+        // device — it never touches a fighter record.
+        const bots = botSlots();
+        if (bots.length > 0) {
+          inputs = ai.fill(runner, inputs, bots);
+        }
+        // Outside the fight — countdown, knockout hold, victory, rematch — every fighter's input is
+        // discarded. Without this a buffered press made during the countdown would land on the
+        // first tick of the fight, which is a free head start nobody agreed to.
+        if (rules.blocksInput) {
+          inputs = runner.fighters.map(() => ({ ...NEUTRAL_INPUT }));
+        }
+
         events = runner.fixedUpdate(dt, inputs);
 
         // Feed the result back so the buffer knows whether each press was taken: an accepted press
@@ -634,6 +884,11 @@ function boot(): void {
         );
       }
 
+      // The lifecycle advances on every path, online included: `MatchRules` is a pure function of
+      // the world, so a local instance is always a correct view of a peer-owned match. It never
+      // writes to a fighter — the reset it requests is applied below, by whoever owns the world.
+      applyModeEvents(rules.step(runner, events));
+
       for (const event of joinEvents) {
         joinBanner =
           event.type === 'join'
@@ -649,6 +904,7 @@ function boot(): void {
     render: (frameCount) => {
       lan?.pump();
       (lan as { panelRefresh?: () => void } | null)?.panelRefresh?.();
+      refreshModePanel();
 
       // Seconds since the last rendered frame. The VFX and the HUD's damage ghost are the two
       // things in this client that run on the display clock rather than the sim clock — both are
@@ -674,6 +930,8 @@ function boot(): void {
         tags: join.slots.map((entry) =>
           entry.kind === 'empty' ? defaultTag(entry.slot) : entry.label,
         ),
+        // The announcement ladder comes straight from the lifecycle; the HUD only draws it.
+        banner: rules.banner(),
       });
 
       renderer.render(scene, camera);
@@ -693,14 +951,17 @@ function boot(): void {
       const devices = join.slots
         .map((slot) => `${slot.slot + 1}:${slot.kind === 'empty' ? '—' : slot.label}`)
         .join('  ');
+      const roundClock = rules.roundTimeLeft;
+      const clockLine = roundClock === null ? '' : `  ·  ${(roundClock / 60).toFixed(1)}s`;
       // Offline the readout shows the local join roster; online the local devices are all feeding
       // one slot, so the relay's roster is the honest thing to show.
       const lanLine = lan === null ? '' : `${lan.status()}\n`;
       debug.textContent =
         `${TICK_HZ}Hz fixed  ·  tick ${runner.tick}  ·  ${fps}fps  ·  frames ${frameCount}\n` +
         `hash ${hash}  ·  events ${lastEvents.length} (${hits} hits)\n` +
-        `cam ${framing.boom.toFixed(1)}m  ·  ${framing.framing.count} in frame` +
+        `cam ${framing.boom.toFixed(1)}m  ·  ${framing.framing.count} in frame${clockLine}` +
         `${sound.enabled ? '' : '  ·  audio off'}\n` +
+        `${rules.describe()}${matchBanner === '' ? '' : `\n${matchBanner}`}\n` +
         `${lanLine}${devices}${joinBanner === '' ? '' : `\n${joinBanner}`}`;
     },
   });
@@ -730,11 +991,22 @@ function boot(): void {
     framing,
     hud,
     sound,
+    // Phase 5 handles. `rules` and `ai` are exposed by reference — unlike `runner`, they are
+    // reassigned when the mode changes, and a console poking at the abandoned first match would be
+    // a genuinely confusing thing to debug.
+    get rules() {
+      return rules;
+    },
+    ai,
+    startMatch,
+    setCpuFill,
+    botSlots,
   };
 
   // Release every GPU and audio resource this client owns. A reload that leaks four articulated
   // rigs and an open `AudioContext` is how a long LAN session ends up running at half speed.
   globalThis.addEventListener?.('beforeunload', () => {
+    globalThis.removeEventListener?.('keydown', onGlobalKey);
     loop.stop();
     roster.dispose();
     stage.dispose();

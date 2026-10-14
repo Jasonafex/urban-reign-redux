@@ -29,6 +29,9 @@
 
 import type { Fighter } from '../sim/fighter';
 import type { SimEvent } from '../sim/events';
+// Type-only, so this stays a pure annotation: the HUD bundle gains no runtime edge to the
+// simulation's match rules, and the architecture gate can keep scanning the two layers apart.
+import type { MatchBanner } from '../sim/modes';
 
 /** Arcade slot colours. Shared with the client's scene proxies so a player matches their panel. */
 export const SLOT_COLORS: readonly string[] = Object.freeze([
@@ -90,6 +93,8 @@ export interface HudModel {
   readonly panels: readonly HudPanelModel[];
   /** Player 1's target-lock reticle, which is the one the camera follows. */
   readonly reticle: { readonly slot: number; readonly target: number } | null;
+  /** Centre-screen match announcement (READY / FIGHT / K.O. / VICTORY / REMATCH), or null. */
+  readonly banner: MatchBanner | null;
 }
 
 /** Everything the HUD needs for one frame. Every field optional: it must tolerate partial input. */
@@ -103,6 +108,8 @@ export interface HudInput {
   readonly dt?: number;
   /** Current sim tick, reported in the model. */
   readonly tick?: number;
+  /** Centre-screen match announcement. Owned by `src/sim/modes.ts`; the HUD only draws it. */
+  readonly banner?: MatchBanner | null;
 }
 
 /**
@@ -237,6 +244,7 @@ export class HudState {
       panels,
       reticle:
         local === undefined || local.lockTarget < 0 ? null : { slot: local.slot, target: local.lockTarget },
+      banner: input.banner ?? null,
     };
   }
 
@@ -326,6 +334,15 @@ function clamp01(value: number): number {
   return value;
 }
 
+/** Banner tones to their arcade colours. `ready` is deliberately the quietest of the five. */
+const BANNER_COLORS: Readonly<Record<string, string>> = Object.freeze({
+  ready: '#cfd4dc',
+  fight: '#7dd83c',
+  ko: '#ffb03c',
+  victory: '#ffd84c',
+  rematch: '#8fb6ff',
+});
+
 /** The DOM half. Every node is looked up once at mount and then only mutated. */
 interface PanelNodes {
   readonly root: HTMLElement;
@@ -344,6 +361,14 @@ export interface HudViewOptions {
   readonly doc?: Document | null;
 }
 
+/** The centre-screen announcement and its drain bar. */
+interface BannerNodes {
+  readonly root: HTMLElement;
+  readonly text: HTMLElement;
+  readonly sub: HTMLElement;
+  readonly drain: HTMLElement;
+}
+
 /**
  * The arcade HUD's DOM view.
  *
@@ -355,6 +380,7 @@ export class HudView {
   private readonly doc: Document | null;
   private panels: PanelNodes[] = [];
   private root: HTMLElement | null = null;
+  private banner: BannerNodes | null = null;
   private mounted = false;
 
   constructor(options: HudViewOptions = {}) {
@@ -388,6 +414,8 @@ export class HudView {
       this.panels.push(this.buildPanel(doc, root, slot));
     }
 
+    this.banner = this.buildBanner(doc, root);
+
     const host = parent ?? doc.body;
     if (host === null || host === undefined) {
       return false;
@@ -396,6 +424,44 @@ export class HudView {
     this.root = root;
     this.mounted = true;
     return true;
+  }
+
+  private buildBanner(doc: Document, root: HTMLElement): BannerNodes {
+    const box = doc.createElement('div');
+    box.setAttribute('data-ur', 'banner');
+    // Centre of the screen, above the panels and below the debug strip. `pointer-events:none` like
+    // everything else here — an announcement that swallowed a tap would eat a touch button.
+    box.style.cssText =
+      'position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);text-align:center;' +
+      'display:none;white-space:nowrap';
+    // Also set as a property rather than left to the `display:none` inside the rule above. This is
+    // the same convention the combo counter uses, and it means the initial state is a real value
+    // rather than something a CSS parser has to be trusted to extract.
+    box.style.display = 'none';
+
+    const text = doc.createElement('div');
+    text.style.cssText =
+      'font-size:clamp(28px,7vw,68px);line-height:1;letter-spacing:.12em;font-weight:800;' +
+      'text-shadow:0 4px 18px rgba(0,0,0,.85)';
+
+    const sub = doc.createElement('div');
+    sub.style.cssText =
+      'margin-top:8px;font-size:12px;letter-spacing:.18em;opacity:.75;text-transform:uppercase';
+
+    // A thin bar that drains across the announcement's own tick budget. It turns a static word
+    // into something the player can read the *end* of, which is what makes the `FIGHT` → silence
+    // transition feel like a start rather than a cut.
+    const drainTrack = doc.createElement('div');
+    drainTrack.style.cssText =
+      'margin:10px auto 0;width:190px;height:3px;background:rgba(255,255,255,.16);border-radius:2px;' +
+      'overflow:hidden';
+    const drain = doc.createElement('div');
+    drain.style.cssText = 'height:100%;width:100%';
+    drainTrack.appendChild(drain);
+
+    box.append(text, sub, drainTrack);
+    root.appendChild(box);
+    return { root: box, text, sub, drain };
   }
 
   private buildPanel(doc: Document, root: HTMLElement, slot: number): PanelNodes {
@@ -476,6 +542,7 @@ export class HudView {
     if (!this.mounted) {
       return;
     }
+    this.renderBanner(model.banner);
     for (const panel of model.panels) {
       const nodes = this.panels[panel.slot];
       if (nodes === undefined) {
@@ -525,6 +592,40 @@ export class HudView {
     }
   }
 
+  /**
+   * Draw the centre announcement, or take it down.
+   *
+   * The banner is passed straight through from `MatchRules.banner()` — the HUD decides nothing about
+   * *which* announcement is showing, only how it looks. Toggling `display` rather than removing the
+   * node keeps this to one style write per phase change instead of rebuilding DOM sixty times a
+   * second.
+   */
+  private renderBanner(banner: MatchBanner | null): void {
+    const nodes = this.banner;
+    if (nodes === null) {
+      return;
+    }
+    if (banner === null) {
+      if (nodes.root.style.display !== 'none') {
+        nodes.root.style.display = 'none';
+      }
+      return;
+    }
+
+    if (nodes.root.style.display === 'none') {
+      nodes.root.style.display = 'block';
+    }
+    setText(nodes.text, banner.text);
+    setText(nodes.sub, banner.sub ?? '');
+    const color = BANNER_COLORS[banner.tone] ?? '#e8e6e1';
+    if (nodes.text.style.color !== color) {
+      nodes.text.style.color = color;
+      nodes.drain.style.background = color;
+    }
+    const remaining = banner.framesTotal <= 0 ? 0 : Math.max(0, Math.min(1, banner.framesLeft / banner.framesTotal));
+    setWidth(nodes.drain, `${(remaining * 100).toFixed(1)}%`);
+  }
+
   /** Remove the HUD from the document. Idempotent. */
   dispose(): void {
     if (this.root !== null) {
@@ -532,6 +633,7 @@ export class HudView {
     }
     this.root = null;
     this.panels = [];
+    this.banner = null;
     this.mounted = false;
   }
 }

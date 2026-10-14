@@ -122,6 +122,51 @@ export const SPA_ON_HIT = 4;
 /** SPA gauge awarded to the attacker on landing a hit. */
 export const SPA_ON_LAND = 6;
 
+// ---------------------------------------------------------------------------------------------
+// Match lifecycle (Phase 5: game modes and the round/knockout clock)
+//
+// All of these are in whole ticks, because the match clock shares the simulation's clock. A
+// countdown driven by `Date.now()` would run a tenth of a second long on a 144Hz host and would
+// not agree with a peer's copy of the same match — the whole lifecycle would have to be
+// renegotiated over the wire. Ticks are already agreed on, so the lifecycle is free to ride them.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Ticks the pre-round countdown runs before the fighters may act.
+ *
+ * Split into two announcements: `READY_FRAMES` of `READY`, then `FIGHT_BANNER_FRAMES` of `FIGHT`.
+ * The second one exists because a banner that appears on the same tick the fighters may act has
+ * already been missed by the time anyone reads it — the fight starts under the tail of the word.
+ */
+export const COUNTDOWN_FRAMES = 165;
+
+/** Ticks the `READY` announcement is up before `FIGHT` replaces it. */
+export const READY_FRAMES = 120;
+
+/** Ticks `FIGHT` stays up after the countdown, overlapping the opening of the fight. */
+export const FIGHT_BANNER_FRAMES = COUNTDOWN_FRAMES - READY_FRAMES;
+
+/**
+ * Ticks the world holds after the final knockout before the round is scored.
+ *
+ * Long enough for the camera to settle on the pair that finished each other and for the `KO`
+ * banner to be read at all. Input is locked out for the duration, so this cannot be used to steal
+ * a free hit.
+ */
+export const KO_HOLD_FRAMES = 100;
+
+/** Ticks the victory screen is held before a rematch vote is opened. */
+export const VICTORY_HOLD_FRAMES = 300;
+
+/** Ticks the rematch announcement is held before the next match loads. */
+export const REMATCH_HOLD_FRAMES = 180;
+
+/** Arcade round clock: 99 seconds, the same budget a coin-op brawler gives a round. */
+export const ROUND_TIME_LIMIT_FRAMES = 99 * TICK_HZ;
+
+/** Rounds a slot or a team must win to take the match. Best of three. */
+export const ROUNDS_TO_WIN = 2;
+
 /** Tuning for the presentation layer only. The sim must never read these. */
 export const RENDER = {
   fov: 55,

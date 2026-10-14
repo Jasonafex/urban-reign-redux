@@ -21,6 +21,11 @@
  * (`dodgeWindow`/`resolveDodge`), the five-level charge hold (`releaseCharge`), the juggle cap and
  * get-up roll (`JUGGLE_LIMIT`, `isInvulnerable`), and the single-target/crowd-clear split
  * (`hitsAll`).
+ *
+ * Phase 5 adds two things a match needs that a fight does not: a fighter's `team`, which makes a
+ * 2v2 un-ambiguous by refusing same-side contact in `resolveHit`, and `reset()`, which rebuilds the
+ * world from the spawn table so a round or a rematch can start without the caller having to
+ * reconstruct every field a knockout touched. Team is world state and is hashed like the rest.
  */
 
 import {
@@ -120,6 +125,11 @@ export interface FighterSpawn {
   readonly x: number;
   readonly z: number;
   readonly facing?: 1 | -1;
+  /**
+   * Side for a team match: 0 for Team A (slots 0, 2), 1 for Team B (slots 1, 3). Omitted means
+   * Free-For-All, where every fighter is hostile to every other one.
+   */
+  readonly team?: 0 | 1;
 }
 
 /**
@@ -141,6 +151,24 @@ export function defaultSpawns(): FighterSpawn[] {
 
 const ARENA_LIMIT = (ARENA_HALF_EXTENT - 0.5) * FP_SCALE;
 
+/**
+ * Build one fighter from a spawn row.
+ *
+ * Coordinates arrive in **world units** and are scaled here. The Phase 0 version pre-multiplied
+ * them at the call site as well, which spawned everyone 7000+ subunits out and had the wall clamp
+ * haul them to the corners on tick 1.
+ */
+function createFighterFromSpawn(spawn: FighterSpawn): Fighter {
+  return createFighter(
+    spawn.slot,
+    spawn.archetypeId,
+    spawn.x * FP_SCALE,
+    spawn.z * FP_SCALE,
+    spawn.facing ?? 1,
+    spawn.team ?? null,
+  );
+}
+
 function clampInt(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;
@@ -152,21 +180,35 @@ type DodgeWindow = 'slip' | 'reversal';
 
 export class MatchRunner {
   readonly fighters: Fighter[];
+  /** The roster this world was built from, in slot order. `reset()` replays it. */
+  readonly spawns: readonly FighterSpawn[];
   tick = 0;
 
   constructor(spawns: readonly FighterSpawn[] = defaultSpawns()) {
-    this.fighters = spawns
-      .slice()
-      .sort((a, b) => a.slot - b.slot)
-      .map((spawn) =>
-        createFighter(
-          spawn.slot,
-          spawn.archetypeId,
-          spawn.x * FP_SCALE,
-          spawn.z * FP_SCALE,
-          spawn.facing ?? 1,
-        ),
-      );
+    this.spawns = spawns.slice().sort((a, b) => a.slot - b.slot);
+    this.fighters = this.spawns.map((spawn) => createFighterFromSpawn(spawn));
+  }
+
+  /**
+   * Rebuild the world from the roster and zero the tick counter.
+   *
+   * Phase 5's round and rematch clock needs a way to start a fresh fight inside one match. The
+   * alternatives were mutating fighters back to full health (which would have to remember every
+   * field a knock-out changed, and would silently miss one the day a field is added) or handing
+   * the renderer a different `MatchRunner` (which orphans every rig, camera and HUD panel already
+   * pointing at the old world). Recreating the fighters from the spawn table is the only version
+   * that cannot drift from "a new match", because the spawn table *is* the definition of one.
+   *
+   * The `fighters` array is refilled in place rather than reassigned, so anything holding a
+   * reference to the array keeps seeing the current world.
+   */
+  reset(spawns: readonly FighterSpawn[] = this.spawns): void {
+    const list = spawns.slice().sort((a, b) => a.slot - b.slot);
+    this.tick = 0;
+    this.fighters.length = 0;
+    for (const spawn of list) {
+      this.fighters.push(createFighterFromSpawn(spawn));
+    }
   }
 
   get aliveCount(): number {
@@ -794,6 +836,16 @@ export class MatchRunner {
 
   private resolveHit(attacker: Fighter, defender: Fighter, def: MoveDef, events: SimEvent[]): boolean {
     if (this.isInvulnerable(defender)) {
+      return false;
+    }
+
+    // Friendly fire. A 2v2 is a *team* match: without this a jack-5 in slot 1 could grab the jack-5
+    // in slot 3 through the entire fight, and neither team's score would mean anything. Both
+    // fighters carrying the same non-null team means they are on the same side, so the hitbox
+    // simply passes through them — no block, no dodge read, no `DodgeEvent`, because none of those
+    // describe an attack that was never aimed at them. Throws are included deliberately: a
+    // teammate behind you is exactly the case a brawler's grab should not solve for you.
+    if (attacker.team !== null && attacker.team === defender.team) {
       return false;
     }
 

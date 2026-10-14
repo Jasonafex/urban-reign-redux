@@ -36,6 +36,17 @@ export interface Fighter {
   /** Player slot index. Also the index into the per-tick input array. */
   slot: number;
   archetypeId: string;
+  /**
+   * Side this fighter fights for: 0 for Team A (slots 0 and 2), 1 for Team B (slots 1 and 3),
+   * or null in a Free-For-All where every pair of fighters is hostile.
+   *
+   * Phase 5 added this as a *fighter* field rather than a match-side table, because team
+   * membership changes what a hitbox is allowed to reach (§3.2: anything that can influence a
+   * future tick belongs in `STATE_HASH_FIELDS`, and this one does). A 2v2 that kept its teams
+   * outside the world state would hash identically whether teammates were fighting each other or
+   * not, and a rollback would happily rewind into the wrong match.
+   */
+  team: 0 | 1 | null;
 
   /** Position in fixed-point subunits (1 unit == FP_SCALE). */
   x: number;
@@ -119,6 +130,7 @@ export interface Fighter {
 export const STATE_HASH_FIELDS: readonly (keyof Fighter)[] = Object.freeze([
   'slot',
   'archetypeId',
+  'team',
   'x',
   'y',
   'z',
@@ -181,6 +193,7 @@ export function createFighter(
   x: number,
   z: number,
   facing: 1 | -1 = 1,
+  team: 0 | 1 | null = null,
 ): Fighter {
   // An unknown archetype id (the frame-measurement rig uses `'frame_probe'`, the harnesses use
   // `'probe'`) must still produce a legal fighter, so every archetype field falls back to the
@@ -189,6 +202,7 @@ export function createFighter(
   return {
     slot,
     archetypeId,
+    team,
     x: Math.trunc(x),
     y: 0,
     z: Math.trunc(z),

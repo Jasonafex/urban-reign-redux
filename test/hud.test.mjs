@@ -54,6 +54,12 @@ function stubElement(tagName) {
       this.children.push(child);
       return child;
     },
+    // Variadic DOM API, used by the banner to mount text, sub-label and drain bar in one call.
+    append(...nodes) {
+      for (const node of nodes) {
+        this.appendChild(node);
+      }
+    },
     removeChild(child) {
       this.children = this.children.filter((entry) => entry !== child);
       child.parentNode = null;
@@ -77,6 +83,25 @@ function walk(node, out = []) {
 /** The mounted HUD root, or undefined when nothing is mounted. */
 function rootOf(doc) {
   return doc.body.children.find((child) => child.getAttribute('data-ur') === 'hud');
+}
+
+/**
+ * The four player panels, in slot order.
+ *
+ * Selected by attribute rather than by position. The HUD root also holds the centre banner (Phase
+ * 5), so `root.children` is no longer "the panels" — indexing it positionally would silently walk
+ * into the banner the moment a fifth child appeared, which is the kind of coupling that turns a
+ * layout addition into five mystery failures.
+ */
+function panelsOf(root) {
+  return root.children
+    .filter((child) => child.getAttribute('data-slot') !== null)
+    .sort((a, b) => Number(a.getAttribute('data-slot')) - Number(b.getAttribute('data-slot')));
+}
+
+/** The centre banner node, or undefined when it has not been mounted. */
+function bannerOf(root) {
+  return root.children.find((child) => child.getAttribute('data-ur') === 'banner');
 }
 
 /** A four-way roster at rest. */
@@ -337,7 +362,7 @@ test('the view is a complete no-op with no document (AGENTS.md §3.1)', () => {
   assert.equal(view.isMounted, false);
 
   // Rendering and disposing a view that never mounted must both be silent no-ops.
-  assert.doesNotThrow(() => view.render({ tick: 0, panels: [], reticle: null }));
+  assert.doesNotThrow(() => view.render({ tick: 0, panels: [], reticle: null, banner: null }));
   assert.doesNotThrow(() => view.dispose());
 
   // And the combined object must survive a full frame's worth of calls, which is exactly what the
@@ -357,12 +382,15 @@ test('mounting builds four corner panels with a health, ghost, SPA bar and three
   assert.equal(view.mount(stubDocument.body), true);
   assert.equal(view.isMounted, true);
 
-  const root = stubDocument.body.children[0];
+  const root = rootOf(stubDocument);
   assert.ok(root !== undefined);
   assert.equal(root.getAttribute('data-ur'), 'hud');
-  assert.equal(root.children.length, 4, 'expected four player panels');
+  assert.equal(panelsOf(root).length, 4, 'expected four player panels');
+  // Phase 5: the match banner is mounted alongside the panels and starts hidden.
+  assert.ok(bannerOf(root) !== undefined, 'the match banner was not mounted');
+  assert.equal(bannerOf(root).style.display, 'none', 'the banner should start hidden');
 
-  root.children.forEach((panel, slot) => {
+  panelsOf(root).forEach((panel, slot) => {
     assert.equal(panel.getAttribute('data-slot'), String(slot));
     // Every panel must be anchored to a corner, or the arcade layout does not exist.
     assert.match(panel.style.cssText, /position:absolute/);
@@ -382,7 +410,7 @@ test('mounting builds four corner panels with a health, ghost, SPA bar and three
   // Render once and count the three width-driven bars: health, ghost and SPA fill.
   const state = new HudState();
   view.render(state.sync({ fighters: roster() }));
-  for (const panel of root.children) {
+  for (const panel of panelsOf(root)) {
     const bars = walk(panel).filter((node) => node.style.width !== undefined);
     assert.equal(bars.length, 3, 'a panel is missing one of its three bars');
   }
@@ -407,8 +435,8 @@ test('render writes real health, ghost and SPA widths onto real nodes', () => {
   const model = state.sync({ fighters, dt: 1 / 60 });
   view.render(model);
 
-  const root = stubDocument.body.children[0];
-  const first = walk(root.children[0]);
+  const root = rootOf(stubDocument);
+  const first = walk(panelsOf(root)[0]);
   const widths = first.filter((node) => node.style.width !== undefined);
   assert.equal(widths[0].style.width, '100.0%', 'the ghost bar did not keep its old value');
   assert.equal(widths[1].style.width, '50.0%');
@@ -424,7 +452,7 @@ test('render writes real health, ghost and SPA widths onto real nodes', () => {
   // With no partner left, the dual pip goes back out even on a full gauge.
   for (const fighter of [fighters[1], fighters[2], fighters[3]]) fighter.eliminated = true;
   view.render(state.sync({ fighters }));
-  const alone = walk(rootOf(stubDocument).children[0]).filter(
+  const alone = walk(panelsOf(rootOf(stubDocument))[0]).filter(
     (node) => node.getAttribute('data-tier') === '3',
   );
   assert.equal(alone.length, 1);
@@ -449,7 +477,7 @@ test('render shows the tag a connected device reports', () => {
   });
   view.render(model);
 
-  const panels = rootOf(stubDocument).children;
+  const panels = panelsOf(rootOf(stubDocument));
   const textsIn = (slot) => walk(panels[slot]).map((node) => node.textContent);
   assert.ok(textsIn(0).includes('pad one'), 'the device label did not reach the DOM');
   assert.ok(textsIn(1).includes('2P'), 'an unlabelled slot should fall back to its nP tag');
@@ -470,7 +498,7 @@ test('render flags a locked fighter and dims an eliminated one', () => {
   const state = new HudState();
   view.render(state.sync({ fighters }));
 
-  const panels = stubDocument.body.children[0].children;
+  const panels = panelsOf(rootOf(stubDocument));
   assert.match(panels[0].style.border, new RegExp(SLOT_COLORS[0]), 'no lock border on the locker');
   assert.equal(panels[1].style.border, '1px solid transparent');
   assert.equal(panels[3].style.opacity, '0.32', 'an eliminated panel should dim');
@@ -485,16 +513,58 @@ test('render only shows a combo counter from two hits up', () => {
   const fighters = roster();
 
   view.render(state.sync({ fighters, events: [hitEvent(0, 1)], tick: 1 }));
-  const comboWrap = () => walk(stubDocument.body.children[0].children[0]).find((node) => node.style.display !== undefined && node.style.display === 'block');
+  const panelOne = () => walk(panelsOf(rootOf(stubDocument))[0]);
+  const comboWrap = () => panelOne().find((node) => node.style.display === 'block');
   assert.equal(comboWrap(), undefined, 'a single hit should not show a combo counter');
 
   view.render(state.sync({ fighters, events: [hitEvent(0, 1)], tick: 2 }));
-  const shown = walk(stubDocument.body.children[0].children[0]).find(
+  const shown = panelOne().find(
     (node) => node.style.display === 'block' && node.children.length === 1,
   );
   assert.ok(shown !== undefined, 'a two-hit string should show a combo counter');
   assert.equal(shown.children[0].textContent, '2');
   assert.equal(shown.children[0].style.color, SLOT_COLORS[0]);
+
+  view.dispose();
+});
+
+test('the match banner shows, drains and clears', () => {
+  const view = new HudView({ doc: stubDocument });
+  view.mount(stubDocument.body);
+  const state = new HudState();
+  const fighters = roster();
+
+  // No banner during the fight.
+  view.render(state.sync({ fighters }));
+  assert.equal(bannerOf(rootOf(stubDocument)).style.display, 'none');
+
+  // A `READY` announcement appears, is coloured by tone, and reports its drain as a proportion.
+  view.render(
+    state.sync({
+      fighters,
+      banner: { text: 'READY', tone: 'ready', framesLeft: 60, framesTotal: 120 },
+    }),
+  );
+  const banner = bannerOf(rootOf(stubDocument));
+  assert.equal(banner.style.display, 'block');
+  assert.ok(walk(banner).some((node) => node.textContent === 'READY'), 'READY text missing');
+  const drain = walk(banner).find((node) => node.style.background !== undefined && node.style.width !== undefined);
+  assert.equal(drain.style.width, '50.0%', 'the drain bar should report half its budget left');
+
+  // With a sub-line.
+  view.render(
+    state.sync({
+      fighters,
+      banner: { text: 'VICTORY', tone: 'victory', framesLeft: 0, framesTotal: 300, sub: 'TEAM A' },
+    }),
+  );
+  const texts = walk(bannerOf(rootOf(stubDocument))).map((node) => node.textContent);
+  assert.ok(texts.includes('VICTORY'));
+  assert.ok(texts.includes('TEAM A'), 'the winner sub-line is missing');
+
+  // And it is taken down again when the match resumes.
+  view.render(state.sync({ fighters }));
+  assert.equal(bannerOf(rootOf(stubDocument)).style.display, 'none');
 
   view.dispose();
 });

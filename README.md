@@ -39,9 +39,9 @@ This is the USA SLUS-21209 build. PCSX2 must support ExtraMemory; tested with PC
 
 See the [complete release notes](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.4.0) for character-specific changes. Some model UV/shading defects, Nina's speaking animation and side-string follow-through remain; audible playback and scene-transition testing are not exhaustive.
 
-## Web client (Phase 0)
+## Web client — Urban Reign Web
 
-This repository also hosts **urban-reign-web**, a deterministic 60Hz 3D multiplayer brawler engine for the browser, modelled on Namco's 2005 Urban Reign. Phase 0 is the scaffolding: fixed-timestep loop, headless simulation core, baseline moveset, and the four verification gates required by `AGENTS.md`.
+This repository also hosts **urban-reign-web**, a deterministic 60Hz 3D multiplayer brawler engine for the browser, modelled on Namco's 2005 Urban Reign: four fighters in an urban arena, directional chain combos, high/low dodges with frame-perfect reversals, grabs, juggles, Special Arts, a match clock, and rollback netcode for playing over the house LAN.
 
 ```bash
 npm install
@@ -52,7 +52,79 @@ npm run build      # gate 3 — tsc && vite build
 npm run report     # gate 4 — declared vs measured frame data, exits non-zero on any discrepancy
 ```
 
-The simulation (`src/sim`, `src/combat`, `src/core`) is DOM-free and integer fixed-point, so the same sources run unchanged in the browser, in the test runner and in the balance report. See [`AGENTS.md`](AGENTS.md) for the architecture and gate definitions.
+### Playing in a browser
+
+Open the page and press a movement key or an action button — the first device you touch claims slot 1, and each additional device claims the next free slot (up to four). Unclaimed slots stay on the board as idle fighters until you fill them with CPUs.
+
+Pick a match with the control strip in the bottom-left corner, or from the keyboard:
+
+| Key | Action |
+| --- | --- |
+| `M` | Switch between **4-Player Free-For-All** and **2v2 Team Battle** |
+| `B` | CPU fill — cycles `0 → 4 → 0`, seating a CPU in every unclaimed slot |
+| `R` | Call a rematch on the victory screen |
+
+A CPU always yields its slot to a real device, so turning the fill on never stops a second player joining.
+
+Match URL flags:
+
+| Flag | Effect |
+| --- | --- |
+| `?mode=free_for_all` | 4-player free-for-all (default) |
+| `?mode=team_battle` | 2v2 — slots 0 + 2 against slots 1 + 3, no friendly fire |
+| `?lan` | Host a house-LAN session |
+| `?join=<host>` | Join a house-LAN relay at that host |
+
+The flags combine, so a phone can open a 2v2 LAN match straight from a QR code.
+
+#### Controls
+
+Two split-keyboard layouts, disjoint by key so two players can share one keyboard without either one's guard press leaking into the other's stick:
+
+| Action | P1 · WASD + JKL | P2 · Arrows + Numpad |
+| --- | --- | --- |
+| Move | `W` `A` `S` `D` | Arrow keys |
+| Strike (chain opener) | `J` | `Numpad1` |
+| Grab | `K` | `Numpad2` |
+| Special Art | `L` | `Numpad3` |
+| Guard high | `Left Shift` | `Numpad4` |
+| Guard low | `C` | `Numpad6` |
+| Dodge high | `U` | `Numpad7` |
+| Dodge low | `I` | `Numpad9` |
+| Target lock | `O` | `Numpad8` |
+
+Combat follows the arcade original: `strike` walks the four-way directional chains (neutral, up, down, side), and a press made during a hit-confirm window branches into the next link. A dodge timed inside its first few frames becomes a **reversal** — it does not merely evade, it counters.
+
+#### Gamepads
+
+Up to four Standard-mapping pads, claimed in index order:
+
+| Action | Button |
+| --- | --- |
+| Strike | `A` / Cross |
+| Grab | `X` / Square |
+| Special Art | `Y` / Triangle |
+| Guard | `B` / Circle — plus stick-down for the low guard |
+| Dodge high / low | `LB` / `RB` |
+| Target lock | `LT` or `L3` |
+
+#### Touch
+
+Phones and tablets get an on-screen arcade pad on first touch: a thumbstick on the left, and `STRIKE`, `GRAB`, `SPA`, `GUARD`, `DODGE-HI`, `DODGE-LO` and `LOCK` buttons on the right. It appears on any device with a touchscreen, including a desktop with a touchscreen.
+
+#### House LAN
+
+Four devices on the same Wi-Fi can play together over a local relay:
+
+```bash
+npm run lan-server   # relay, prints its LAN addresses
+```
+
+Open `http://<your-lan-ip>:5173/?lan` on the host. A panel in the top-right shows the join link and a **QR code** — anyone in the house can scan it with a phone and join without typing an IP address. The host applies its own input immediately and predicts everyone else's, rolling back and re-simulating when a packet corrects a guess; the readout shows latency, jitter and rollback count live.
+
+### Architecture
+
+The simulation (`src/sim`, `src/combat`, `src/core`) is DOM-free and integer fixed-point, so the same sources run unchanged in the browser, in the test runner and in the balance report. Game modes and the match lifecycle live in `src/sim/modes.ts`; the CPU opponent is `src/sim/ai.ts`, a pure function of `(seed, slot, tick, world)` so it is replay- and rollback-safe. See [`AGENTS.md`](AGENTS.md) for the architecture and gate definitions.
 
 ## About
 
