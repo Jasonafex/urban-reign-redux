@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.mjs\"",
     "report": "node tools/feel-report.mjs",
-    "lan-server": "node tools/lan-server.mjs"
+    "lan-server": "node tools/lan-server.mjs",
+    "signal-broker": "node tools/signal-broker.mjs"
   },
   "dependencies": {
     "three": "^0.186.1",

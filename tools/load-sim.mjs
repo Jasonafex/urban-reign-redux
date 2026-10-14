@@ -79,6 +79,26 @@ export const CLIENT_ENTRY = `export * from './src/net/protocol';
 export * from './src/net/client';
 `;
 
+/**
+ * The WebRTC P2P path: room referee, data-channel adapter, in-browser relay and signaling.
+ *
+ * On its own graph, and deliberately so. `webrtc.ts` reaches for `RTCPeerConnection` and
+ * `WebSocket` — both only through `globalThis` probes, and only at call time — but bundling it here
+ * keeps it out of `NET_ENTRY`, whose purity is what `test/rollback.test.mjs` and `test/lan.test.mjs`
+ * assert when they prove the engine that drives four fighters has no transport in it at all.
+ *
+ * `room.ts` is re-exported rather than shared, for the same reason `SERVER_ENTRY` re-exports the
+ * protocol: one copy of the referee per bundle, or the two transports would hold two different
+ * versions of the same room. `client.ts` comes along so the suite can drive a *real* `LanClient`
+ * over an adapted data channel — the adapter's whole contract is "a `LanClient` cannot tell the
+ * difference", and only a real `LanClient` can falsify that.
+ */
+export const WEBRTC_ENTRY = `export * from './src/net/protocol';
+export * from './src/net/room';
+export * from './src/net/client';
+export * from './src/net/webrtc';
+`;
+
 // -------------------------------------------------------------------------------------------
 // Phase 4 — presentation layer (Three.js rigs/stage/VFX, framing camera, HUD, Web Audio)
 // -------------------------------------------------------------------------------------------
@@ -206,6 +226,19 @@ export async function loadServer() {
 /** Load the browser client (`src/net/client`) so the LAN suite can drive it against the relay. */
 export async function loadClient() {
   const outfile = await bundle(CLIENT_ENTRY, 'client');
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Load the WebRTC P2P graph (`src/net/protocol` + `src/net/room` + `src/net/webrtc`).
+ *
+ * Loads in Node with no browser globals present, which is the property `test/webrtc.test.mjs` gates
+ * hardest: the data-channel adapter, the in-browser relay and the signaling codec all have to be
+ * exercisable headlessly, or "gracefully handles environments where `RTCPeerConnection` is
+ * undefined" would be an unfalsifiable claim in a comment.
+ */
+export async function loadWebrtc() {
+  const outfile = await bundle(WEBRTC_ENTRY, 'webrtc');
   return import(pathToFileURL(outfile).href);
 }
 

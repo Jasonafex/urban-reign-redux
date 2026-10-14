@@ -70,6 +70,7 @@ import {
   type ModeEvent,
 } from './sim/modes';
 import { LanClient, relayUrl } from './net/client';
+import type { SocketFactory, SocketLike } from './net/client';
 import { RollbackSession } from './net/rollback';
 import {
   DEFAULT_RELAY_PORT,
@@ -77,6 +78,13 @@ import {
   canonicalizeInput,
   inputFromWire,
 } from './net/protocol';
+import {
+  InBrowserP2pGuest,
+  InBrowserP2pHost,
+  normalizeRoomCode,
+  roomJoinUrl,
+  signalBrokerUrl,
+} from './net/webrtc';
 
 /**
  * The house-LAN half of the client.
@@ -103,21 +111,49 @@ interface LanMatch {
 }
 
 /**
- * Query flags that put the client into LAN mode: `?lan` hosts, `?join=<host>` joins a relay.
+ * How this page was opened, and therefore which network path it takes.
  *
- * A plain `http://192.168.1.42:5173/?lan` is what the QR code encodes, so the join path has to work
- * from a cold URL with no stored state — which is exactly what a phone scanning it has.
+ * Four ways in, and they are mutually exclusive on purpose — a QR code is one decision, not two:
+ *
+ *   - `?room=UR-XXXX`  join a room hosted by another browser, peer-to-peer.
+ *   - `?p2p`           *become* the host: the referee runs in this tab.
+ *   - `?join=<host>`   join a WebSocket relay running on another machine (the house-LAN path).
+ *   - `?lan`           the relay is on this machine.
+ *
+ * A plain URL is none of these, and the client plays offline — which is the same thing it did before
+ * any of this existed, so a mistyped flag never leaves somebody staring at a blank screen.
  */
-function readLanFlags(): { enabled: boolean; relayHost: string | null } {
+type NetFlags =
+  | { readonly kind: 'off' }
+  | { readonly kind: 'lan'; readonly relayHost: string | null }
+  | { readonly kind: 'p2p-host' }
+  | { readonly kind: 'p2p-guest'; readonly room: string };
+
+function readNetFlags(): NetFlags {
   if (typeof location === 'undefined') {
-    return { enabled: false, relayHost: null };
+    return { kind: 'off' };
   }
   const params = new URLSearchParams(location.search);
+
+  // The P2P room comes first. `?room=` is the only flag a guest ever needs, and it must win even if
+  // the URL also carries a stale `?lan` from a copied join link — otherwise the guest would silently
+  // try to dial a relay that is not there.
+  const room = params.get('room');
+  if (room !== null && room !== '') {
+    return { kind: 'p2p-guest', room };
+  }
+  if (params.has('p2p')) {
+    return { kind: 'p2p-host' };
+  }
+
   const join = params.get('join');
   if (join !== null && join !== '') {
-    return { enabled: true, relayHost: join };
+    return { kind: 'lan', relayHost: join };
   }
-  return { enabled: params.has('lan'), relayHost: null };
+  // `?lan` with no host means "the relay is on this machine", which is the same code path as a join
+  // to `location.hostname` — kept as one value rather than a flag, so the relay's own default bind
+  // address stays the single source of truth for "which machine is this".
+  return { kind: 'lan', relayHost: null };
 }
 
 /**
@@ -136,19 +172,51 @@ function readModeFromUrl(): GameModeId {
   return GAME_MODES.some((mode) => mode.id === requested) ? (requested as GameModeId) : 'free_for_all';
 }
 
-function createLanMatch(onSessionReady: (session: RollbackSession) => void): LanMatch | null {
-  const flags = readLanFlags();
-  // No `WebSocket` global means no LAN mode. Returning null (rather than throwing) leaves the
-  // client in its normal offline behaviour, which is the right outcome on an old browser.
-  if (!flags.enabled || typeof WebSocket !== 'function') {
+interface LanMatchConfig {
+  /** What the HUD calls this session: `lan:` over a relay, `p2p:` over peer connections. */
+  readonly label: 'lan' | 'p2p';
+  /** Display name sent in `hello`, and the room both peers agree on. */
+  readonly name: string;
+  readonly room: string;
+  /**
+   * The socket factory.
+   *
+   * Omitted for the house LAN, where `LanClient` opens a `WebSocket` of its own. Supplied for P2P,
+   * where the socket is a data channel — or, for the host's own slot 0, an in-memory pair into the
+   * referee running in this very tab. That is the entire difference between "two phones on Wi-Fi"
+   * and "four browsers across the internet": one function argument.
+   */
+  readonly createSocket?: SocketFactory | undefined;
+  /** Where the transport lives, for the status line. Never dialled on the P2P path. */
+  readonly url: string;
+  /**
+   * Extra per-frame housekeeping, run by `pump`.
+   *
+   * The P2P host uses it to sweep its referee. Deliberately part of the match's own frame budget
+   * rather than a second timer: a sweep on its own interval keeps running after a tab is hidden,
+   * which is precisely when a backgrounded host tab should be doing nothing at all.
+   */
+  readonly extraPump?: (() => void) | undefined;
+}
+
+function createLanMatch(
+  onSessionReady: (session: RollbackSession) => void,
+  config: LanMatchConfig,
+): LanMatch | null {
+  // No `WebSocket` global and no injected transport means no LAN mode. Returning null (rather than
+  // throwing) leaves the client in its normal offline behaviour, which is the right outcome on an
+  // old browser.
+  if (config.createSocket === undefined && typeof WebSocket !== 'function') {
     return null;
   }
 
-  const host = flags.relayHost ?? (typeof location === 'undefined' ? '127.0.0.1' : location.hostname);
   const client = new LanClient({
-    url: relayUrl(host === '' ? '127.0.0.1' : host, DEFAULT_RELAY_PORT),
-    name: 'house',
-    room: 'house',
+    url: config.url,
+    name: config.name,
+    room: config.room,
+    // Omitted rather than passed as `undefined`: `LanClient` reads an absent factory as "use the
+    // global WebSocket", which is exactly the LAN path and exactly what a P2P path must not do.
+    ...(config.createSocket === undefined ? {} : { createSocket: config.createSocket }),
   });
 
   let session: RollbackSession | null = null;
@@ -219,6 +287,7 @@ function createLanMatch(onSessionReady: (session: RollbackSession) => void): Lan
       return [...result.events];
     },
     pump(): void {
+      config.extraPump?.();
       client.poll();
       if (session === null) {
         return;
@@ -234,27 +303,209 @@ function createLanMatch(onSessionReady: (session: RollbackSession) => void): Lan
       const latency = client.latency;
       switch (client.state) {
         case 'unavailable':
-          return 'lan: no WebSocket in this browser';
+          return `${config.label}: no transport in this browser`;
         case 'rejected':
-          return 'lan: rejected by relay (room full, or version mismatch)';
+          return `${config.label}: rejected by the room (all four slots taken, or version mismatch)`;
         case 'closed':
-          return 'lan: relay connection closed';
+          return `${config.label}: connection closed`;
         default:
           break;
       }
       if (session === null) {
-        return `lan: ${client.state}…`;
+        return `${config.label}: ${client.state}…`;
       }
       const peers = client.roster.filter((entry) => entry.connected).length;
       const stats = session.stats;
       const rewind = stats.maxRewindTicks > 0 ? ` (max −${stats.maxRewindTicks})` : '';
       return (
-        `lan: slot ${session.localSlot + 1}/${peers} · ${latency.rttMs.toFixed(0)}ms` +
+        `${config.label}: slot ${session.localSlot + 1}/${peers} · ${latency.rttMs.toFixed(0)}ms` +
         ` ±${latency.jitterMs.toFixed(0)} · rollbacks ${stats.rollbacks}${rewind}`
       );
     },
     joinLinks(): readonly string[] {
       return links;
+    },
+  };
+}
+
+// -------------------------------------------------------------------------------------------
+// Peer-to-peer (Phase 6): the first browser hosts the room, in this tab
+// -------------------------------------------------------------------------------------------
+
+/**
+ * The P2P half of the client, as the panel sees it.
+ *
+ * Deliberately narrower than `LanMatch`: this is the *room*, not the match. The match is an ordinary
+ * `LanMatch` built over a socket this layer hands it, which is what keeps a P2P session and a LAN
+ * session on the same netcode path — the rollback engine, the wire protocol and the referee cannot
+ * tell them apart.
+ */
+interface P2pRoom {
+  readonly kind: 'host' | 'guest';
+  /** `UR-XXXX`, or null when the page was handed a room code it could not parse. */
+  readonly roomCode: string | null;
+  /** One line for the panel: what the broker is doing, and how many guests have arrived. */
+  status(): string;
+  /**
+   * What to do when the room exists but has not opened.
+   *
+   * A P2P room with no broker is the *expected* failure on a fresh checkout — the page's own origin
+   * serves no `/signal` endpoint — so the panel says which URL it tried and the command that fixes
+   * it, instead of showing a status line that never changes.
+   */
+  hint(): string;
+  /** The URL a guest scans. */
+  joinLinks(): readonly string[];
+  close(): void;
+}
+
+/** This page's own URL, or an empty string where there is no `location` (headless import). */
+function pageUrl(): string {
+  return typeof location === 'undefined' ? '' : location.href;
+}
+
+/**
+ * How often the in-browser referee sweeps for silent peers.
+ *
+ * Matches `LanRelayServer`'s default sweep period. A peer that has gone quiet for longer than the
+ * handshake window is dropped; anything shorter would reap a phone whose screen merely locked.
+ */
+const RELAY_SWEEP_INTERVAL_MS = 2000;
+
+/**
+ * Host the room in this tab, and play slot 0 in it.
+ *
+ * The host is not a special case anywhere below this function: `attachLocal()` hands back an
+ * in-memory socket, the same kind of socket a guest gets from a data channel, and the *same*
+ * `createLanMatch` builds the session on it. Everything the host does for its guests — answering a
+ * `join`, relaying their inputs, arbitrating hashes — happens inside the referee that
+ * `InBrowserP2pHost` already owns.
+ *
+ * Returns null when the browser cannot host at all (no `WebSocket` for the broker, no
+ * `RTCPeerConnection`), which the caller renders as a status line rather than a dead button.
+ */
+function createP2pHostRoom(onSessionReady: (session: RollbackSession) => void): {
+  room: P2pRoom;
+  match: LanMatch;
+} | null {
+  if (typeof WebSocket !== 'function' || typeof RTCPeerConnection !== 'function') {
+    return null;
+  }
+  const host = new InBrowserP2pHost({
+    name: 'host',
+    signalUrl: signalBrokerUrl(pageUrl()),
+  });
+  // Slot 0 is this browser, wired into the referee in this same tab.
+  const local = host.relay.attachLocal();
+
+  // The referee's idle sweep, throttled to the relay's own cadence.
+  //
+  // `pump` runs once per rendered frame, and an unthrottled sweep would walk the peer table 60 times
+  // a second to do what the Node relay does every two seconds. It also has to be *driven* rather than
+  // self-timed: a `setInterval` keeps running in a backgrounded tab, which is exactly when a host tab
+  // should be doing nothing.
+  let lastSweepMs = 0;
+  host.relay.sweep();
+
+  const match = createLanMatch(onSessionReady, {
+    label: 'p2p',
+    name: host.relay.localName,
+    room: host.roomCode,
+    createSocket: () => local.socket,
+    url: `p2p://${host.roomCode}`,
+    extraPump: () => {
+      const now = performance.now();
+      if (now - lastSweepMs < RELAY_SWEEP_INTERVAL_MS) {
+        return;
+      }
+      lastSweepMs = now;
+      host.relay.sweep();
+    },
+  });
+  if (match === null) {
+    host.close();
+    return null;
+  }
+  host.start();
+
+  return {
+    match,
+    room: {
+      kind: 'host',
+      roomCode: host.roomCode,
+      status: () => host.status,
+      hint: () => host.brokerHint,
+      joinLinks: () => [roomJoinUrl(host.roomCode, pageUrl())],
+      close: () => {
+        host.close();
+        match.client.close();
+      },
+    },
+  };
+}
+
+/**
+ * Join a room hosted by another browser.
+ *
+ * Nothing exists yet when this returns: the socket arrives when the data channel opens, and only then
+ * is there a `LanMatch` to install. That is why `install` is a callback rather than a return value —
+ * the frame loop has to be able to start offline and pick up the session when it lands, exactly as it
+ * does on the LAN path while a relay is still assigning a slot.
+ *
+ * `invalidReason` is returned instead of throwing when `?room=` is not a room code: somebody reading
+ * a code aloud off a screen mistyped it, and the useful response is "that is not a room code", not a
+ * stack trace.
+ */
+function createP2pGuestRoom(
+  onSessionReady: (session: RollbackSession) => void,
+  install: (match: LanMatch) => void,
+  rawRoom: string,
+): { room: P2pRoom; match: null } | { invalidReason: string } {
+  const room = normalizeRoomCode(rawRoom);
+  if (room === null) {
+    return { invalidReason: `"${rawRoom}" is not a room code — expected UR-XXXX` };
+  }
+  if (typeof WebSocket !== 'function' || typeof RTCPeerConnection !== 'function') {
+    return { invalidReason: 'this browser cannot do peer-to-peer (no WebRTC or no WebSocket)' };
+  }
+
+  let guest: InBrowserP2pGuest;
+  try {
+    guest = new InBrowserP2pGuest({
+      roomCode: room,
+      name: 'guest',
+      signalUrl: signalBrokerUrl(pageUrl()),
+      // The client is built here, inside the callback, and that is load-bearing: by the time
+      // negotiation finishes the channel is already open, and `WebRtcDataChannelSocket` replays its
+      // `open` on a microtask. A client created a turn later would never hear it, and would sit in
+      // "connecting" forever having never sent its `hello`.
+      onChannel: (socket: SocketLike) => {
+        const match = createLanMatch(onSessionReady, {
+          label: 'p2p',
+          name: 'guest',
+          room,
+          createSocket: () => socket,
+          url: `p2p://${room}`,
+        });
+        if (match !== null) {
+          install(match);
+        }
+      },
+    });
+  } catch (error) {
+    return { invalidReason: `could not start: ${String(error)}` };
+  }
+  guest.start();
+
+  return {
+    match: null,
+    room: {
+      kind: 'guest',
+      roomCode: room,
+      status: () => guest.status,
+      hint: () => guest.brokerHint,
+      joinLinks: () => [roomJoinUrl(room, pageUrl())],
+      close: () => guest.close(),
     },
   };
 }
@@ -329,6 +580,150 @@ function mountLanPanel(root: HTMLElement, lan: LanMatch): boolean {
   (lan as { panelRefresh?: () => void }).panelRefresh = refresh;
   refresh();
   return true;
+}
+
+/**
+ * The peer-to-peer panel: host a room, or type a code into somebody else's.
+ *
+ * Always mounted, because the two questions a new player asks — "how do I get three other people in
+ * here" and "is there anything to run" — have to be answerable from a cold page load with no query
+ * flags and no server. A panel that only appears once a room exists cannot answer either.
+ *
+ * While hosting it shows the room code, a QR of `?room=UR-XXXX`, and a copy button, which is the same
+ * three-part affordance the LAN panel uses for an IP address — the difference is that this one needs
+ * nothing installed on the guest's machine.
+ *
+ * Returns a refresh function rather than owning a timer, like the mode panel: the frame loop already
+ * runs, and a panel that polls on its own keeps updating on a tab nobody is looking at.
+ */
+function mountP2pPanel(
+  root: HTMLElement,
+  api: {
+    onHost: () => void;
+    onJoin: (room: string) => void;
+    /** Current room state. `roomCode` is null until there is a room to advertise. */
+    describe: () => {
+      status: string;
+      roomCode: string | null;
+      joinUrl: string | null;
+      /** Shown under the status while the room has not opened yet. */
+      hint: string;
+    };
+  },
+): () => void {
+  const panel = document.createElement('div');
+  panel.style.cssText =
+    'position:fixed;right:12px;bottom:12px;font:11px/1.5 ui-monospace,monospace;color:#cfd4dc;' +
+    'background:rgba(12,14,18,.82);border:1px solid #2a2e35;border-radius:8px;padding:10px;' +
+    'max-width:220px;z-index:10';
+
+  const title = document.createElement('div');
+  title.textContent = 'PEER-TO-PEER';
+  title.style.cssText = 'letter-spacing:.22em;color:#7dd83c;margin-bottom:6px';
+
+  const status = document.createElement('div');
+  status.style.cssText = 'white-space:pre;color:#8b9099';
+
+  // The "you probably need a broker" line. Kept visually subordinate to the status so a room that is
+  // merely still negotiating does not look like an error.
+  const hint = document.createElement('div');
+  hint.style.cssText = 'white-space:pre-wrap;margin-top:4px;color:#6b7078';
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;margin-top:8px';
+
+  const style =
+    'font:inherit;padding:5px 8px;background:#20242b;color:#cfd4dc;border:1px solid #2a2e35;' +
+    'border-radius:4px;cursor:pointer';
+
+  const host = document.createElement('button');
+  host.textContent = 'Host P2P';
+  host.title = 'Run the room in this tab — nobody has to install or run a server';
+  host.style.cssText = style;
+  host.addEventListener('click', () => api.onHost());
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'UR-XXXX';
+  input.spellcheck = false;
+  input.autocapitalize = 'characters';
+  input.style.cssText =
+    'font:inherit;padding:4px 6px;width:82px;background:#161a20;color:#cfd4dc;' +
+    'border:1px solid #2a2e35;border-radius:4px';
+
+  const join = document.createElement('button');
+  join.textContent = 'Join';
+  join.title = 'Connect straight to the browser hosting that room';
+  join.style.cssText = style;
+  const attemptJoin = (): void => {
+    const room = input.value;
+    input.value = '';
+    api.onJoin(room);
+  };
+  join.addEventListener('click', attemptJoin);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      attemptJoin();
+    }
+  });
+
+  row.append(host, input, join);
+
+  const code = document.createElement('div');
+  code.style.cssText = 'margin-top:8px;font-size:16px;letter-spacing:.18em;color:#7dd83c';
+
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'margin-top:6px;width:168px;height:168px;background:#fff;border-radius:4px';
+
+  const copy = document.createElement('button');
+  copy.textContent = 'copy join link';
+  copy.style.cssText = `${style};width:100%;margin-top:6px`;
+
+  panel.append(title, status, hint, row, code, canvas, copy);
+  root.appendChild(panel);
+
+  copy.addEventListener('click', () => {
+    const url = api.describe().joinUrl ?? pageUrl();
+    // `navigator.clipboard` is absent on plain http origins in some browsers, so failure is expected
+    // and simply leaves the visible code as the fallback.
+    void navigator.clipboard?.writeText(url).catch(() => undefined);
+  });
+
+  let lastStatus = '';
+  let renderedFor: string | null = null;
+  let lastCode = '';
+  let lastHint = '';
+
+  return (): void => {
+    const { status: next, roomCode, joinUrl, hint: nextHint } = api.describe();
+    if (next !== lastStatus) {
+      status.textContent = next;
+      lastStatus = next;
+    }
+    // The hint disappears the moment the room opens, so a live session is not cluttered by advice
+    // about a problem it no longer has.
+    if (nextHint !== lastHint) {
+      lastHint = nextHint;
+      hint.textContent = nextHint;
+    }
+    if (roomCode !== lastCode) {
+      lastCode = roomCode ?? '';
+      code.textContent = roomCode ?? '';
+      // Nothing to scan before there is a room: an empty QR canvas would read as "broken" rather than
+      // "not hosting yet".
+      canvas.style.display = roomCode === null ? 'none' : '';
+      copy.style.display = roomCode === null ? 'none' : '';
+      row.style.display = roomCode === null ? 'flex' : 'none';
+    }
+    if (joinUrl !== renderedFor) {
+      renderedFor = joinUrl;
+      if (joinUrl !== null) {
+        if (!mountQr(canvas, encodeQr(joinUrl, { errorCorrection: 'M' }))) {
+          canvas.style.display = 'none';
+        }
+      }
+    }
+  };
 }
 
 /**
@@ -681,27 +1076,166 @@ function boot(): void {
   globalThis.addEventListener?.('resize', resize);
 
   // -------------------------------------------------------------------------------------------
-  // House LAN: one socket, one rollback session, one join panel
+  // Online: one socket, one rollback session — over a relay, or straight to another browser
   // -------------------------------------------------------------------------------------------
 
   /**
-   * The LAN half of the client.
+   * Take ownership of the world when a session lands.
    *
-   * Owns the socket, the rollback session and the join panel, and exposes exactly three things the
-   * frame loop needs: the world to render, the local input to submit, and a per-frame pump. Socket
-   * callbacks never run inside `fixedUpdate`, so a slow read cannot stall a tick for every fighter.
+   * Shared by every online path. The rollback session owns its own `MatchRunner`, and handing the
+   * renderer that world is the only change of ownership in the whole online path — the tick still
+   * receives nothing but `FrameInput[]`, and the renderer still only reads fighter records back out.
+   *
+   * Refuses to swap a world out from under a live session: a P2P guest that re-negotiates, or a LAN
+   * relay that restarts, would otherwise leave the renderer pointing at an abandoned match whose
+   * tick counter no longer lines up with the session's snapshot rings.
    */
-  const lan = createLanMatch((session) => {
-    // The rollback session owns its own `MatchRunner`. Handing the renderer that world is the only
-    // change of ownership in the whole Phase 3 path — the tick still receives nothing but
-    // `FrameInput[]`, and the renderer still only reads fighter records back out.
+  const onSessionReady = (session: RollbackSession): void => {
+    if (lan !== null && lan.live) {
+      return;
+    }
     runner = session.runner;
     buildProxies();
-  });
+  };
 
-  if (lan !== null) {
-    mountLanPanel(container, lan);
+  /**
+   * The online half of the client, or null while playing offline.
+   *
+   * Mutable because a P2P guest has no transport until its data channel opens: the page boots and
+   * plays offline, then picks up the session when negotiation lands — the same way the LAN path waits
+   * for a relay to assign a slot. Both the frame loop and the mode logic read this variable, and
+   * neither caches it.
+   */
+  let lan: LanMatch | null = null;
+
+  /**
+   * The P2P room this page is running, if any.
+   *
+   * Separate from `lan` because a guest's room exists long before (and survives past) its session,
+   * and because the panel needs to show a room code that has nothing to do with a socket.
+   */
+  let p2p: P2pRoom | null = null;
+
+  /** Why the page is not in a P2P room, when the URL asked for one and it could not be started. */
+  let p2pProblem = '';
+
+  const netFlags = readNetFlags();
+  const panelFor = (match: LanMatch): void => {
+    mountLanPanel(container, match);
+  };
+
+  // `netFlags.kind === 'off'` has no branch below on purpose: a page with no network flag plays
+  // offline, exactly as it did before any of this existed.
+  if (netFlags.kind === 'lan') {
+    const host = netFlags.relayHost ?? (typeof location === 'undefined' ? '127.0.0.1' : location.hostname);
+    lan = createLanMatch(onSessionReady, {
+      label: 'lan',
+      name: 'house',
+      room: 'house',
+      url: relayUrl(host === '' ? '127.0.0.1' : host, DEFAULT_RELAY_PORT),
+    });
+    if (lan !== null) {
+      panelFor(lan);
+    }
   }
+
+  if (netFlags.kind === 'p2p-host') {
+    const hosted = createP2pHostRoom(onSessionReady);
+    if (hosted === null) {
+      p2pProblem = 'this browser cannot host peer-to-peer (no WebRTC or no WebSocket)';
+    } else {
+      p2p = hosted.room;
+      lan = hosted.match;
+      panelFor(hosted.match);
+    }
+  }
+
+  if (netFlags.kind === 'p2p-guest') {
+    const joined = createP2pGuestRoom(
+      onSessionReady,
+      (match) => {
+        lan = match;
+        panelFor(match);
+      },
+      netFlags.room,
+    );
+    if ('invalidReason' in joined) {
+      p2pProblem = joined.invalidReason;
+    } else {
+      p2p = joined.room;
+    }
+  }
+
+  /**
+   * Drop whatever room this tab was in.
+   *
+   * Both panel actions go through here, because two rooms in one tab means two rollback sessions
+   * driving one world: the second would win silently, and the first would keep publishing inputs for
+   * a fighter the renderer has already thrown away.
+   */
+  const leaveRoom = (): void => {
+    p2p?.close();
+    p2p = null;
+    lan?.client.close();
+    lan = null;
+  };
+
+  /**
+   * The P2P panel.
+   *
+   * Mounted on every page, not only when a room exists, so the "Host P2P" button is where the panel
+   * it is on rather than behind a query flag. Its two actions both end up in exactly one place —
+   * `createP2pHostRoom` / `createP2pGuestRoom` — so the `?p2p` and `?room=` cold-start paths and the
+   * button path cannot drift apart.
+   */
+  const refreshP2pPanel = mountP2pPanel(container, {
+    onHost: () => {
+      if (p2p !== null) {
+        return;
+      }
+      leaveRoom();
+      const hosted = createP2pHostRoom(onSessionReady);
+      if (hosted === null) {
+        p2pProblem = 'this browser cannot host peer-to-peer (no WebRTC or no WebSocket)';
+        return;
+      }
+      p2p = hosted.room;
+      p2pProblem = '';
+      lan = hosted.match;
+      panelFor(hosted.match);
+    },
+    onJoin: (room) => {
+      if (room.trim() === '') {
+        return;
+      }
+      leaveRoom();
+      const joined = createP2pGuestRoom(
+        onSessionReady,
+        (match) => {
+          lan = match;
+          panelFor(match);
+        },
+        room,
+      );
+      if ('invalidReason' in joined) {
+        p2pProblem = joined.invalidReason;
+        return;
+      }
+      p2p = joined.room;
+      p2pProblem = '';
+    },
+    describe: () => ({
+      status:
+        p2pProblem !== ''
+          ? p2pProblem
+          : (p2p?.status() ?? 'no server needed — host, or type a room code'),
+      roomCode: p2p?.roomCode ?? null,
+      joinUrl: p2p?.joinLinks()[0] ?? null,
+      // Advice, not error: shown while a room exists but has no session yet, and dropped as soon as
+      // one lands.
+      hint: p2p !== null && (lan === null || !lan.live) ? p2p.hint() : '',
+    }),
+  });
 
   const refreshModePanel = mountModePanel(container, {
     onMode: (mode) => startMatch(mode),
@@ -905,6 +1439,7 @@ function boot(): void {
       lan?.pump();
       (lan as { panelRefresh?: () => void } | null)?.panelRefresh?.();
       refreshModePanel();
+      refreshP2pPanel();
 
       // Seconds since the last rendered frame. The VFX and the HUD's damage ghost are the two
       // things in this client that run on the display clock rather than the sim clock — both are
@@ -956,13 +1491,17 @@ function boot(): void {
       // Offline the readout shows the local join roster; online the local devices are all feeding
       // one slot, so the relay's roster is the honest thing to show.
       const lanLine = lan === null ? '' : `${lan.status()}\n`;
+      // The room state sits beside the session state: "p2p UR-AB12: hosting · 2 guests connected" is
+      // the answer to "is anybody actually in here", which the slot line alone cannot give.
+      const p2pLine =
+        p2pProblem !== '' ? `${p2pProblem}\n` : p2p === null ? '' : `${p2p.status()}\n`;
       debug.textContent =
         `${TICK_HZ}Hz fixed  ·  tick ${runner.tick}  ·  ${fps}fps  ·  frames ${frameCount}\n` +
         `hash ${hash}  ·  events ${lastEvents.length} (${hits} hits)\n` +
         `cam ${framing.boom.toFixed(1)}m  ·  ${framing.framing.count} in frame${clockLine}` +
         `${sound.enabled ? '' : '  ·  audio off'}\n` +
         `${rules.describe()}${matchBanner === '' ? '' : `\n${matchBanner}`}\n` +
-        `${lanLine}${devices}${joinBanner === '' ? '' : `\n${joinBanner}`}`;
+        `${lanLine}${p2pLine}${devices}${joinBanner === '' ? '' : `\n${joinBanner}`}`;
     },
   });
 
@@ -980,7 +1519,14 @@ function boot(): void {
     renderer,
     loop,
     join,
-    lan,
+    // Phase 6: `lan` is a `let` (a P2P guest's session lands after boot) and `p2p` may be null, so
+    // both are exposed as getters — a snapshot here would be stale by the time anybody looked.
+    get lan() {
+      return lan;
+    },
+    get p2p() {
+      return p2p;
+    },
     keyboard,
     gamepads,
     touch: touchState,
@@ -1007,6 +1553,10 @@ function boot(): void {
   // rigs and an open `AudioContext` is how a long LAN session ends up running at half speed.
   globalThis.addEventListener?.('beforeunload', () => {
     globalThis.removeEventListener?.('keydown', onGlobalKey);
+    // Tear the room down before the peer connections: a host tab that unloads without telling its
+    // referee leaves every guest waiting out a channel that will never answer.
+    p2p?.close();
+    lan?.client.close();
     loop.stop();
     roster.dispose();
     stage.dispose();
