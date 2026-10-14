@@ -77,6 +77,35 @@ export const CLIENT_ENTRY = `export * from './src/net/protocol';
 export * from './src/net/client';
 `;
 
+// -------------------------------------------------------------------------------------------
+// Phase 4 — presentation layer (Three.js rigs/stage/VFX, framing camera, HUD, Web Audio)
+// -------------------------------------------------------------------------------------------
+//
+// Bundled on its own graph, separate from `SIM_ENTRY`, and deliberately so. The architecture gate
+// (`test/determinism.test.mjs`) scans `sources.sim` for `THREE`, `AudioContext`, `document` and
+// friends to prove the *simulation* never reaches for the host; adding presentation modules to
+// that bundle would fire that gate on files that are supposed to touch Three.js. Keeping the
+// graphs apart is what lets each gate assert about exactly one layer.
+//
+// The renderer is still loadable in Node: `three`'s scene graph, geometry and material classes
+// build fine without WebGL, because nothing touches a GL context until `WebGLRenderer` is
+// constructed. That is what lets the Phase 4 suites build real rigs, real stage geometry and real
+// particles and assert on them with no browser present.
+
+export const RENDER_ENTRY = `export * from './src/render/character';
+export * from './src/render/stage';
+export * from './src/render/vfx';
+`;
+
+export const CAMERA_ENTRY = `export * from './src/camera/camera';
+`;
+
+export const HUD_ENTRY = `export * from './src/ui/hud';
+`;
+
+export const AUDIO_ENTRY = `export * from './src/audio/sound';
+`;
+
 let tempDir = null;
 let repoTempDir = null;
 
@@ -181,6 +210,54 @@ export async function loadClient() {
 /** Load the QR encoder (`src/ui/qr`) headlessly. */
 export async function loadQr() {
   const outfile = await bundle(QR_ENTRY, 'qr');
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Load the Three.js presentation modules (`src/render/*`) headlessly.
+ *
+ * Scene graph, geometry and materials construct fine in Node — only `WebGLRenderer` needs a GL
+ * context — so the Phase 4 suite can build the real rigs and the real stage and assert on the
+ * resulting object graph.
+ */
+export async function loadRender() {
+  const outfile = await bundle(RENDER_ENTRY, 'render');
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Load the framing camera (`src/camera/camera`) headlessly.
+ *
+ * Bundled separately from `RENDER_ENTRY` so a suite that only cares about framing math does not
+ * drag the whole Three.js rig graph in behind it, and so the camera's "reads sim state, writes
+ * none" property can be scanned on its own.
+ */
+export async function loadCamera() {
+  const outfile = await bundle(CAMERA_ENTRY, 'camera');
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Load the arcade HUD (`src/ui/hud`) headlessly.
+ *
+ * The HUD's model half is pure and its view half touches `document`. Both must import with no
+ * document present, which is what this suite gates: `test/hud.test.mjs` drives the view half
+ * against a stub document rather than a real browser.
+ */
+export async function loadHud() {
+  const outfile = await bundle(HUD_ENTRY, 'hud');
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Load the audio layer (`src/audio/sound`) headlessly.
+ *
+ * `test/vfx-audio.test.mjs` gates that every cue is a no-op with no `AudioContext` in the process,
+ * and that each cue builds real Web Audio nodes once one *is* injected. Both halves need the
+ * module to import cleanly without a browser.
+ */
+export async function loadAudio() {
+  const outfile = await bundle(AUDIO_ENTRY, 'sound');
   return import(pathToFileURL(outfile).href);
 }
 

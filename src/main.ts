@@ -28,16 +28,35 @@
  * simulation `FrameInput[]`, and still only ever reads fighter records back out. When a LAN
  * session is live the renderer simply reads `session.runner` instead of a local `MatchRunner`,
  * which is a change of *where state comes from*, not a new channel into it.
+ *
+ * Phase 4 replaces the Phase 0 placeholder arena — four box walls and four capsule proxies — with
+ * the real presentation stack, one module per job:
+ *   - `render/stage` builds the urban arena on the sim's own `ARENA_HALF_EXTENT`,
+ *   - `render/character` poses four articulated rigs from `Fighter` records,
+ *   - `render/vfx` throws sparks, dust and SPA shockwaves off the event stream,
+ *   - `camera/camera` frames every living fighter and shakes on impact,
+ *   - `ui/hud` draws the four arcade panels, and `audio/sound` synthesises the cues.
+ *
+ * This file is the wiring and nothing else: it hands out fighter records, consumes the sim's
+ * events, and owns no geometry, no arithmetic and no audio graph of its own. Every one of those
+ * modules is headless-safe on its own, which is why the frame loop can call all of them
+ * unconditionally without a single `if (typeof document === 'undefined')` in this file.
  */
 
 import * as THREE from 'three';
-import { ARENA_HALF_EXTENT, FP_SCALE, RENDER, TICK_HZ } from './config';
+import { FP_SCALE, RENDER, TICK_HZ } from './config';
 import { startFixedLoop } from './core/loop';
 import { GamepadSource } from './input/gamepad';
 import { KeyboardSource } from './input/keyboard';
 import { JoinManager } from './input/join';
 import { TouchController, TouchInputState } from './ui/touch';
 import { encodeQr, mountQr } from './ui/qr';
+import { ArcadeHud, defaultTag } from './ui/hud';
+import { SoundBoard } from './audio/sound';
+import { CharacterRoster } from './render/character';
+import { buildStage } from './render/stage';
+import { VfxSystem } from './render/vfx';
+import { createFramingCamera } from './camera/camera';
 import type { FrameInput } from './sim/runner';
 import { MatchRunner, NEUTRAL_INPUT } from './sim/runner';
 import type { Fighter } from './sim/fighter';
@@ -50,14 +69,6 @@ import {
   canonicalizeInput,
   inputFromWire,
 } from './net/protocol';
-
-const SLOT_COLORS = [0xd8443c, 0x7dd83c, 0x3c8fd8, 0xd8b23c] as const;
-
-interface FighterProxy {
-  group: THREE.Group;
-  marker: THREE.Mesh;
-  healthBar: THREE.Mesh;
-}
 
 /**
  * The house-LAN half of the client.
@@ -323,111 +334,53 @@ function boot(): void {
   scene.background = new THREE.Color(0x0d0f13);
   scene.fog = new THREE.Fog(0x0d0f13, 18, 46);
 
-  const camera = new THREE.PerspectiveCamera(
-    RENDER.fov,
+  const { camera, framing } = createFramingCamera(
     (container.clientWidth || 1280) / (container.clientHeight || 720),
-    RENDER.near,
-    RENDER.far,
   );
 
-  scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x2a2018, 1.1));
-  const key = new THREE.DirectionalLight(0xffffff, 1.4);
-  key.position.set(6, 14, 8);
-  scene.add(key);
+  // Phase 4: the arena, the fighters, the impacts and the framing are each owned by one module.
+  // `main.ts` is the wiring: it hands out sim records and consumes the event stream, and owns no
+  // geometry, no audio graph and no HUD arithmetic of its own.
+  const stage = buildStage();
+  scene.add(stage.group);
 
-  // Placeholder urban stage: wet asphalt, four alley walls, a couple of props to frame the arena.
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(ARENA_HALF_EXTENT * 2, ARENA_HALF_EXTENT * 2),
-    new THREE.MeshStandardMaterial({ color: 0x1b1e23, roughness: 0.85 }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
+  const vfx = new VfxSystem();
+  scene.add(vfx.group);
 
-  const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x2b3038, roughness: 0.7 });
-  const wallHeight = 3.2;
-  const wallThickness = 0.4;
-  const span = ARENA_HALF_EXTENT * 2;
-  for (const [x, z, sx, sz] of [
-    [0, -ARENA_HALF_EXTENT, span + wallThickness, wallThickness],
-    [0, ARENA_HALF_EXTENT, span + wallThickness, wallThickness],
-    [-ARENA_HALF_EXTENT, 0, wallThickness, span],
-    [ARENA_HALF_EXTENT, 0, wallThickness, span],
-  ] as const) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(sx, wallHeight, sz), wallMaterial);
-    wall.position.set(x, wallHeight / 2, z);
-    scene.add(wall);
-  }
-  for (const [x, z, height] of [
-    [-5.5, -5.5, 1.1],
-    [6.2, 4.4, 0.9],
-  ] as const) {
-    const prop = new THREE.Mesh(
-      new THREE.BoxGeometry(1.6, height, 1.2),
-      new THREE.MeshStandardMaterial({ color: 0x39414c, roughness: 0.6 }),
-    );
-    prop.position.set(x, height / 2, z);
-    scene.add(prop);
-  }
+  const sound = new SoundBoard();
+  const hud = new ArcadeHud();
+  hud.mount(container);
 
   // Mutable because a LAN session brings its own world: when the relay assigns a slot, the
   // rollback session's `MatchRunner` becomes the one being rendered. Offline it never changes.
   let runner: MatchRunner = new MatchRunner();
-  const proxies = new Map<number, FighterProxy>();
+  const roster = new CharacterRoster(scene);
 
   /**
-   * Build a scene proxy per fighter.
+   * Build one articulated rig per fighter.
    *
    * Re-runnable, because the LAN session's world is a different `MatchRunner` instance from the
-   * offline one. Rebuilt rather than pooled: four capsule meshes cost nothing, and a pool would
-   * have to be correct about *which* fighter it is standing in for — which is precisely the kind
-   * of state that rots when a world is swapped underneath it.
+   * offline one. Rebuilt rather than pooled: a rig is four dozen meshes with a per-archetype
+   * skeleton, and a pool would have to be correct about *which* fighter it is standing in for —
+   * precisely the kind of state that rots when a world is swapped underneath it.
    */
   function buildProxies(): void {
-    for (const proxy of proxies.values()) {
-      scene.remove(proxy.group);
-    }
-    proxies.clear();
-
-    for (const fighter of runner.fighters) {
-    const color = SLOT_COLORS[fighter.slot % SLOT_COLORS.length] ?? 0xffffff;
-    const group = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.38, 1.05, 4, 12),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.55 }),
-    );
-    body.position.y = 0.95;
-    group.add(body);
-
-    // Facing marker: a small wedge in front of the fighter, so left/right reads on screen.
-    const marker = new THREE.Mesh(
-      new THREE.ConeGeometry(0.16, 0.42, 4),
-      new THREE.MeshBasicMaterial({ color }),
-    );
-    marker.rotation.z = -Math.PI / 2;
-    marker.position.set(0.6, 0.95, 0);
-    group.add(marker);
-
-    // Health bar floats above the head and reads straight off sim state each frame.
-    const healthBar = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.1, 0.12),
-      new THREE.MeshBasicMaterial({ color: 0x8ef0a0 }),
-    );
-    healthBar.position.y = 2.1;
-    group.add(healthBar);
-
-    scene.add(group);
-    proxies.set(fighter.slot, { group, marker, healthBar });
-    }
+    roster.dispose();
+    roster.build(runner.fighters);
+    hud.reset();
   }
 
   buildProxies();
 
-  const hud = document.createElement('div');
-  hud.style.cssText =
+  // The developer readout. Separate from the arcade HUD on purpose: this is a diagnostic strip
+  // (tick, hash, fps, roster) that a player should never have to look at, and the HUD in
+  // `src/ui/hud.ts` is the thing they are actually playing against.
+  const debug = document.createElement('div');
+  debug.style.cssText =
     'position:fixed;left:12px;top:12px;font:12px/1.4 ui-monospace,monospace;color:#cfd4dc;' +
     'background:rgba(12,14,18,.72);border:1px solid #2a2e35;border-radius:6px;padding:8px 10px;' +
-    'white-space:pre;pointer-events:none';
-  document.body.appendChild(hud);
+    'white-space:pre;pointer-events:none;z-index:6';
+  document.body.appendChild(debug);
 
   // -------------------------------------------------------------------------------------------
   // Input stack: four pads, two keyboards, one touch overlay, four slots
@@ -527,6 +480,128 @@ function boot(): void {
     mountLanPanel(container, lan);
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Event stream -> presentation
+  // -------------------------------------------------------------------------------------------
+
+  /** World position of a fighter's chest, in world units. */
+  function chestOf(fighter: Fighter | undefined, out: THREE.Vector3): THREE.Vector3 {
+    if (fighter === undefined) {
+      return out.set(0, 1.2, 0);
+    }
+    return out.set(fighter.x / FP_SCALE, fighter.y / FP_SCALE + 1.15, fighter.z / FP_SCALE);
+  }
+
+  const scratchA = new THREE.Vector3();
+  const scratchB = new THREE.Vector3();
+  const contactPoint = new THREE.Vector3();
+
+  /**
+   * Turn one tick of sim events into sparks, dust, rings, shake and sound.
+   *
+   * Every decision here is read out of the event rather than re-derived: a block event throws
+   * block sparks and not a hit, a knockdown throws dust at the floor, an SPA event throws a ring
+   * sized by its tier, and the camera shake scales off the damage the simulation actually dealt.
+   * The renderer never decides *whether* something connected — only how it looks.
+   */
+  function present(events: readonly SimEvent[]): void {
+    for (const event of events) {
+      switch (event.type) {
+        case 'hit': {
+          const attacker = runner.fighterAt(event.attackerSlot);
+          const defender = runner.fighterAt(event.defenderSlot);
+          // Contact sits between the two fighters, on the defender's side: a spark at the
+          // attacker's fist reads as a miss.
+          chestOf(attacker, scratchA);
+          chestOf(defender, scratchB);
+          contactPoint.copy(scratchA).lerp(scratchB, 0.68);
+
+          const power = Math.min(Math.max(event.damage / 60, 0.2), 1.4);
+          if (event.guarded) {
+            vfx.block({ position: contactPoint, power });
+            framing.shake(0.12);
+          } else {
+            vfx.hit({ position: contactPoint, power });
+            if (event.knockdown) {
+              vfx.knockdownDust({
+                position: scratchB.setY(defender === undefined ? 0.1 : defender.y / FP_SCALE + 0.05),
+                power,
+              });
+            }
+            // A launcher or a heavy hit gets a real kick; a jab gets a nudge. Trauma is squared
+            // by the camera, so these numbers are the square root of what the player feels.
+            framing.shake(event.launcher || event.damage >= 45 ? 0.5 : 0.16 * power);
+          }
+          break;
+        }
+
+        case 'dodge': {
+          const dodger = runner.fighterAt(event.slot);
+          chestOf(dodger, contactPoint);
+          if (event.outcome === 'reversal') {
+            vfx.shockwave({ position: contactPoint, power: 0.6 }, 1);
+            framing.shake(0.35);
+          } else {
+            vfx.slip({ position: contactPoint });
+            sound.spaCharge(1);
+          }
+          break;
+        }
+
+        case 'wallImpact': {
+          const fighter = runner.fighterAt(event.slot);
+          chestOf(fighter, contactPoint);
+          vfx.knockdownDust({ position: contactPoint, power: 0.8 });
+          vfx.hit({ position: contactPoint, power: 0.6 });
+          framing.shake(0.3);
+          break;
+        }
+
+        case 'spa': {
+          const caster = runner.fighterAt(event.slot);
+          chestOf(caster, contactPoint);
+          vfx.shockwave({ position: contactPoint, power: 0.8 }, event.tier);
+          framing.shake(0.4);
+          break;
+        }
+
+        default:
+          break;
+      }
+    }
+
+    // Audio is handed the same stream the VFX just consumed: the sound board makes its own
+    // mapping from `damage`, `guarded`, `launcher` and `tier`, so the two never drift apart.
+    sound.consume(events);
+  }
+
+  /**
+   * Air-move on a strike starting.
+   *
+   * The sim emits no "move began" event — it emits contact — so this watches each fighter's
+   * `currentMove` for a change instead. A move that whiffs still makes its sound, which is what
+   * the player needs: a whiffed swing is information.
+   */
+  const announcedMove = new Map<number, string | null>();
+
+  function announceStrikes(): void {
+    for (const fighter of runner.fighters) {
+      const previous = announcedMove.get(fighter.slot) ?? null;
+      if (fighter.currentMove !== previous) {
+        announcedMove.set(fighter.slot, fighter.currentMove);
+        if (fighter.currentMove !== null && fighter.state === 'startup') {
+          sound.whoosh(0.5);
+        }
+      }
+      if (fighter.state === 'getup') {
+        sound.getup();
+      }
+    }
+  }
+
+  /** Seconds since the previous rendered frame, for the display-clock-driven layers. */
+  let lastFrameMs = 0;
+
   const loop = startFixedLoop({
     fixedUpdate: (dt) => {
       // The tick the world is about to run. Input is sampled for *this* tick, never for the last
@@ -575,58 +650,58 @@ function boot(): void {
       lan?.pump();
       (lan as { panelRefresh?: () => void } | null)?.panelRefresh?.();
 
-      // Presentation reads sim state; it never writes to it.
-      for (const fighter of runner.fighters) {
-        const proxy = proxies.get(fighter.slot);
-        if (proxy === undefined) {
-          continue;
-        }
-        proxy.group.position.set(fighter.x / FP_SCALE, 0, fighter.z / FP_SCALE);
-        proxy.group.rotation.y = fighter.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
-        proxy.group.rotation.z = fighter.state === 'launched' ? 0.6 : 0;
-        proxy.marker.position.x = 0.6 * fighter.facing;
-        const ratio = Math.max(0, fighter.health / fighter.maxHealth);
-        proxy.healthBar.scale.x = ratio;
-        proxy.healthBar.position.x = -(1 - ratio) * 0.55;
-        proxy.healthBar.visible = !fighter.eliminated;
-        proxy.group.visible = !fighter.eliminated;
-      }
+      // Seconds since the last rendered frame. The VFX and the HUD's damage ghost are the two
+      // things in this client that run on the display clock rather than the sim clock — both are
+      // smoothing cues for the eye, and both would look wrong if they ticked at 60Hz on a 240Hz
+      // screen. Clamped so a backgrounded tab does not dump four seconds of decay into one frame.
+      const now = performance.now();
+      const dt = lastFrameMs === 0 ? 1 / 60 : Math.min((now - lastFrameMs) / 1000, 0.1);
+      lastFrameMs = now;
 
-      const centre = new THREE.Vector3();
-      const living = runner.fighters.filter((fighter) => !fighter.eliminated);
-      for (const fighter of living) {
-        centre.add(new THREE.Vector3(fighter.x / FP_SCALE, 0, fighter.z / FP_SCALE));
-      }
-      if (living.length > 0) {
-        centre.multiplyScalar(1 / living.length);
-      }
-      camera.position.set(centre.x, RENDER.cameraHeight, centre.z + RENDER.cameraDistance);
-      camera.lookAt(centre.x, RENDER.cameraLookHeight, centre.z);
+      // Presentation reads sim state; it never writes to it.
+      roster.update(runner.fighters);
+      announceStrikes();
+      present(lastEvents);
+      vfx.update(dt);
+      framing.update(runner.fighters, dt);
+
+      hud.sync({
+        fighters: runner.fighters,
+        events: lastEvents,
+        dt,
+        tick: runner.tick,
+        // The joined device's label is more useful in a corner than "1P" once one exists.
+        tags: join.slots.map((entry) =>
+          entry.kind === 'empty' ? defaultTag(entry.slot) : entry.label,
+        ),
+      });
 
       renderer.render(scene, camera);
 
       fpsFrames += 1;
-      const now = performance.now();
+      const clock = performance.now();
       if (fpsWindowStart === 0) {
-        fpsWindowStart = now;
-      } else if (now - fpsWindowStart >= 500) {
-        fps = Math.round((fpsFrames * 1000) / (now - fpsWindowStart));
+        fpsWindowStart = clock;
+      } else if (clock - fpsWindowStart >= 500) {
+        fps = Math.round((fpsFrames * 1000) / (clock - fpsWindowStart));
         fpsFrames = 0;
-        fpsWindowStart = now;
+        fpsWindowStart = clock;
       }
 
       const hits = lastEvents.filter(isHit).length;
       const hash = runner.stateHash();
-      const roster = join.slots
+      const devices = join.slots
         .map((slot) => `${slot.slot + 1}:${slot.kind === 'empty' ? '—' : slot.label}`)
         .join('  ');
-      // Offline the HUD shows the local join roster; online the local devices are all feeding one
-      // slot, so the relay's roster is the honest thing to show.
+      // Offline the readout shows the local join roster; online the local devices are all feeding
+      // one slot, so the relay's roster is the honest thing to show.
       const lanLine = lan === null ? '' : `${lan.status()}\n`;
-      hud.textContent =
+      debug.textContent =
         `${TICK_HZ}Hz fixed  ·  tick ${runner.tick}  ·  ${fps}fps  ·  frames ${frameCount}\n` +
         `hash ${hash}  ·  events ${lastEvents.length} (${hits} hits)\n` +
-        `${lanLine}${roster}${joinBanner === '' ? '' : `\n${joinBanner}`}`;
+        `cam ${framing.boom.toFixed(1)}m  ·  ${framing.framing.count} in frame` +
+        `${sound.enabled ? '' : '  ·  audio off'}\n` +
+        `${lanLine}${devices}${joinBanner === '' ? '' : `\n${joinBanner}`}`;
     },
   });
 
@@ -649,7 +724,24 @@ function boot(): void {
     gamepads,
     touch: touchState,
     touchController,
+    stage,
+    roster,
+    vfx,
+    framing,
+    hud,
+    sound,
   };
+
+  // Release every GPU and audio resource this client owns. A reload that leaks four articulated
+  // rigs and an open `AudioContext` is how a long LAN session ends up running at half speed.
+  globalThis.addEventListener?.('beforeunload', () => {
+    loop.stop();
+    roster.dispose();
+    stage.dispose();
+    vfx.dispose();
+    hud.dispose();
+    sound.dispose();
+  });
 }
 
 if (typeof document !== 'undefined') {
