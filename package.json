@@ -1,0 +1,24 @@
+{
+  "name": "urban-reign-web",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Urban Reign Redux 0.4 — WebAssembly PS2 Recompilation & Disc Slicing",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "test:recomp": "node scripts/test_recomp_browser.mjs",
+    "slice:redux": "node scripts/slice_redux.js",
+    "slice:retail": "node scripts/slice_retail.js",
+    "serve": "python recomp-web/serve.py recomp-web 8620"
+  },
+  "dependencies": {
+    "brotli": "^2.1.0",
+    "brotli-dec-wasm": "^2.3.2"
+  },
+  "devDependencies": {
+    "ws": "^8.22.0"
+  }
+}

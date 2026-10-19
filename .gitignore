@@ -9,3 +9,17 @@
 upload-kit/
 node_modules/
 __pycache__/
+
+# web client build output
+dist/
+*.tsbuildinfo
+
+# esbuild scratch bundles for the headless test suite (tools/load-sim.mjs)
+.test-build/
+Urban Reign.7z
+*.pyc
+*.gz
+!recomp-web/chunks/**
+scratch/
+Urban Reign Redux 0.4/
+.wrangler/
