@@ -1,43 +1,40 @@
 ![Urban Reign Redux](docs/assets/logo.png)
 
-# Urban Reign Redux 0.4
+# Urban Reign Redux 0.5
 
 More fighters, revised movesets, new voices, music and menus for Urban Reign. A community project by **Jasonafex**.
 
 ## Download
 
-**[Download 0.4 + Textures — complete manual package, 1.75 GB](https://drive.google.com/file/d/127deHyx4wlYcyniWvTe1pl8oEXROJMxh/view)**
+**[Download 0.5 — all-in-one package, 2.67 GB](https://drive.google.com/file/d/1anZDvW-zTK52fi4HEZLxqO-3OlE2e1Wl/view)**
 
-[Full patch notes since 0.3 and checksums](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.4.0) · [Project website](https://jasonafex.github.io/urban-reign-redux/) · [Report an issue](https://github.com/Jasonafex/urban-reign-redux/issues)
+**[Mod Manager + Editor 0.5 — GitHub release](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.5.0)** — build the tested release from your own Urban Reign (USA) ISO and choose your packs.
 
-Released October 3, 2026. The Google Drive download is available to anyone with the link; no sign-in is required.
+[Full patch notes and checksums](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.5.0) · [Project website](https://jasonafex.github.io/urban-reign-redux/) · [Report an issue](https://github.com/Jasonafex/urban-reign-redux/issues)
 
-The ZIP includes:
-- Urban Reign Redux 0.4.iso
-- 167 matching replacement textures
-- PCSX2 ExtraMemory game setting
-- START HERE.txt, patch notes and SHA-256 checksums
+Released October 28, 2026. The Google Drive download is available to anyone with the link; no sign-in is required.
 
-Supply your own PCSX2 installation and BIOS. **No mod installer or Editor is required.** The earlier September 30 Auto-Installer does not install this 0.4 build.
+The all-in-one ZIP includes the ready-made 0.5 disc, HD textures in PCSX2's folder layout, the Extra Memory game setting, START HERE.txt, patch notes and checksums. Supply your own PCSX2 installation and PS2 BIOS.
 
-## Manual setup
+The portable Mod Manager includes the base pack and both HD texture sets. Unzip it, open **Urban Reign Redux Launcher.exe**, select your own Urban Reign (USA) ISO and PCSX2 folder, choose the packs and press **Build modded disc**. With no extra fighter packs, the checked result is byte-identical to the tested 0.5 release (PCSX2 CRC **74E78599**). The launcher also installs the HD textures and Extra Memory setting.
+
+The optional portable Editor starts with **Urban Reign Redux Editor.vbs**. The earlier Auto-Installer is a separate legacy release.
+
+## All-in-one setup
 
 1. Extract the ZIP, read **START HERE.txt**, and put the new ISO in your games folder.
-2. Close PCSX2. Merge the supplied game setting into its data folder and install the included textures. Back up older Redux texture packs outside the active texture folder to avoid conflicts. Enable **Load Textures**.
-3. **Fresh-boot the new ISO. Do not resume an older emulator save state.** Memory-card saves may still be used.
+2. With PCSX2 closed, follow the included instructions to install the matching textures and Extra Memory game setting. Back up older Redux texture packs outside the active texture folder to avoid conflicts. Enable **Load Textures**.
+3. **Start from a fresh boot, not an older emulator save state.** Memory-card saves are fine.
 
-This is the USA SLUS-21209 build. PCSX2 must support ExtraMemory; tested with PCSX2 2.7.403.
+## What's new in 0.5
 
-## What's new since 0.3
+- Updated fighters, Fighter Files stats, styles and bios; Ricardo gets his own select slot, name and Fighter Files page.
+- Grounded idles, skeleton repairs and Tekken 8 stances; long strings connect more reliably.
+- Yoshimitsu's voice, sound and move fixes, including the Player 2 selection freeze repair.
+- Jeff's Twist of Fate, idle, taunt and side SPA fixes; Snake's up SPA now does damage.
+- Cleaner hair, glasses and clothing, reduced rainbow sheen, spring repairs and two HD texture packs.
 
-- Independent Baek, Nina and Carl Johnson combat/announcer banks; new SPA and Fighter File recordings with heavy-attack/taunt fallbacks.
-- Expanded voice-table and sound-routing repairs, added stream loading fixes, and SPA voice admission corrections.
-- Nina and Baek moveset revisions, stronger later-string hitstun, updated finishers, throws and SPAs.
-- Hwoarang right stance and purple SPA3; Violet timing, movement and kip-up corrections; Cammy/Heihachi throws and further combat/grab recovery fixes.
-- Updated Violet, Paul and Nina models, Carl Johnson face repair, Baek gi-trim UV/swing fixes, and new selection portraits.
-- Experimental healthbar skin reverted.
-
-See the [complete release notes](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.4.0) for character-specific changes. Some model UV/shading defects, Nina's speaking animation and side-string follow-through remain; audible playback and scene-transition testing are not exhaustive.
+See the [complete release notes and known issues](https://github.com/Jasonafex/urban-reign-redux/releases/tag/v0.5.0) for character-specific changes.
 
 ## About
 
