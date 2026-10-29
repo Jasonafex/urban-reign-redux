@@ -18,7 +18,7 @@ The all-in-one ZIP includes the ready-made 0.5 disc, HD textures in PCSX2's fold
 
 The portable Mod Manager includes the base pack and both HD texture sets. Unzip it, open **Urban Reign Redux Launcher.exe**, select your own Urban Reign (USA) ISO and PCSX2 folder, choose the packs and press **Build modded disc**. With no extra fighter packs, the checked result is byte-identical to the tested 0.5 release (PCSX2 CRC **74E78599**). The launcher also installs the HD textures and Extra Memory setting.
 
-The optional portable Editor starts with **Urban Reign Redux Editor.vbs**. The earlier Auto-Installer is a separate legacy release.
+The optional portable Editor starts with **Urban Reign Redux Editor.exe**. The earlier Auto-Installer is a separate legacy release.
 
 ## All-in-one setup
 
